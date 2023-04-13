@@ -1,17 +1,9 @@
-//	v.5.1
-// 
-//	5.0 + disconnect와 deleteSession을 위해 findSession에서 ioCount를 referenceCount처럼 사용해 
-//	
-//
+
 #include <string.h>
 #define __VER__ (strrchr(__FILE__, '_') ? strrchr(__FILE__, '_') + 1 : __FILE__)
 #define _USE_LOGGER_
 
-//	v.5.1
-// 
-//	5.0 + disconnect와 deleteSession을 위해 findSession에서 ioCount를 referenceCount처럼 사용해 
-//	
-//
+
 #ifdef _DEBUG
 #pragma comment(lib, "crashDumpD")
 
