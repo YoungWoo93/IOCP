@@ -47,7 +47,7 @@
 
 
 
-Network::Network() : sessionPool(3000){
+Network::Network() : sessionPool(3000) {
 
 };
 
@@ -306,7 +306,7 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 	overlapped* o;
 	core->sessionPool.init();
 	serializerPool.init();
-	
+
 	while (core->isRun)
 	{
 
@@ -335,23 +335,10 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 				// sended -1 예외처리
 				//
 			}
-
 			InterlockedExchange(&sessionPtr->sendFlag, 0);
-			// 이순간에는 IOCount 차감 안되있음, sendFlag 꺼져있음 상태
-			// 
-			
-			//sessionPtr->sendIO();
-			while (InterlockedCompareExchange(&(sessionPtr->sendFlag), 0, 0) == 0 && !(sessionPtr->sendBuffer.empty()))
-			{
-				if (!sessionPtr->sendIO())
-				{
-					if (sessionPtr->decrementIO() == 0) {
-						core->deleteSession(sessionPtr);
-						break;
-					}
-				}
-			}
 
+			if (sessionPtr->sendBuffer.size() > 0)
+				sessionPtr->sendIO();
 		}
 		else	//recv 완료 블록
 		{
@@ -466,6 +453,23 @@ bool Network::sendPacket(UINT64 sessionID, packet& _pakcet)
 	if (s.ptr == nullptr)
 		return false;
 
+	{
+		if (s.ptr->sendBuffer.freeSize() >= sizeof(serializer*))
+		{
+			_pakcet.buffer->incReferenceCounter();
+			auto ret = s.ptr->sendBuffer.push((char*)&(_pakcet.buffer), sizeof(serializer*));
+
+
+			if (!s.ptr->sendIO())
+			{
+				if (s.ptr->decrementIO() == 0) {
+					deleteSession(s.ptr);
+					return false;
+				}
+			}
+		}
+	}
+	/*/
 	if (s.ptr->collectSendPacket(_pakcet))
 	{
 		if (!(s.ptr->sendIO()))
@@ -476,6 +480,6 @@ bool Network::sendPacket(UINT64 sessionID, packet& _pakcet)
 			}
 		}
 	}
-
+	/*/
 	return true;
 }

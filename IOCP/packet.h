@@ -36,6 +36,8 @@ struct packetHeader {
 
 class packet {
 public:
+	serializer* buffer;
+
 	packet() {
 		buffer = serializerAlloc();
 
@@ -54,7 +56,6 @@ public:
 		buffer->incReferenceCounter();
 	}
 
-	serializer* buffer;
 
 	packet& operator << (const char v) {
 		(*buffer) << v;

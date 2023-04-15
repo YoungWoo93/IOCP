@@ -142,8 +142,6 @@ UINT32 session::incrementIO() {
 
 bool session::sendIO()
 {
-
-
 	if (InterlockedExchange(&sendFlag, 1) == 1)
 		return true;
 
@@ -179,7 +177,7 @@ bool session::sendIO()
 
 
 	auto ret = WSASend(socket, buffer, (DWORD)WSAbufferCount, &temp1, 0, (LPWSAOVERLAPPED)&sendOverlapped, NULL);
-	
+
 
 	if (ret == SOCKET_ERROR) {
 		auto errorCode = GetLastError();
