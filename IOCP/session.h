@@ -143,8 +143,8 @@ public:
 	SOCKET getSocket();
 	UINT16 getPort();
 
-	bool sendOverlappedCheck(overlapped* o);
-	bool recvOverlappedCheck(overlapped* o);
+	bool sendOverlappedCheck(OVERLAPPED* o);
+	bool recvOverlappedCheck(OVERLAPPED* o);
 
 	void bufferClear();
 
@@ -152,27 +152,28 @@ public:
 	unsigned long long int ID;			//8		- 유저단에서 주로 사용
 
 public:
-	overlapped sendOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
-	overlapped recvOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
 	SOCKET socket;						//8
 	UINT16 port;						//2
+	short sendFlag;						//2		- interlock
+	UINT32 IOcount;						//4		- interlock
+	ringBuffer sendBuffer;				//32
 
-	UINT32 IOcount;						//4
-	UINT32 sendFlag;					//4
+	//alignas(64) 
+	OVERLAPPED sendOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
+	OVERLAPPED recvOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
 
-	ringBuffer sendBuffer;				//56
-	ringBuffer sendedBuffer;			//56
-	ringBuffer recvBuffer;				//56
+	ringBuffer sendedBuffer;			//32
+	ringBuffer recvBuffer;				//32
 
-	UINT32 debugFlag;					//4
 };
 //	total 288
 
 //0	 1	 2	 3	 4	 5	 6	 7	 8	 9	 10	 11	 12	 13	 14	 15	 16	 17	 18	 19	 20	 21	 22	 23	 24	 25	 26	 27	 28	 29	 30	 31	 32	 33	 34	 35	 36	 37	 38	 39	 40	 41	 42	 43	 44	 45	 46	 47	 48	 49	 50	 51	 52	 53	 54	 55	 56	 57	 58	 59	 60	 61	 62	 63
 //	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	
-//		ID	(0~7) 8/8			|	send overlapped	(8 ~ 47) 40/8																																|	recv overlapped (48 ~  87(13)) 40/8
-//
-//
+//		ID	(0~7) 8/8			|	socket (8~15) 8/8			| port	|-------|  IOcount		| -이후 락프리 들어갈곳, 현재 sendBuffer																											|	
+//	send overlapped	(0 ~ 31) 32/8																								|	recv overlapped (32 ~  63) 32/8
+//	sended buffer	(0 ~ 31) 32/8																								|	recv buffer (32 ~  63) 32/8
+// sFlag|
 //
 //
 //

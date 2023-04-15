@@ -77,7 +77,7 @@ protected:
 	virtual void OnError(int errorcode, const char* msg = "") = 0;
 
 	sessionPtr findSession(UINT64 sessionID);
-
+	
 public:
 	////////////////////////////////////////////////////////////////////////////////////
 	// 이하 컨텐츠단에서 먼저 호출 가능한 함수들

@@ -301,7 +301,6 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 	DWORD transfer;
 	session* sessionPtr;
 	OVERLAPPED* overlap;
-	overlapped* o;
 
 	while (core->isRun)
 	{
@@ -310,7 +309,6 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 		if (sessionPtr == nullptr) //PQCS 에 의한 종료
 			break;
 
-		o = ((overlapped*)overlap);
 		if (GQCSresult == false || transfer == 0)
 		{
 			if (sessionPtr->decrementIO() == 0)
@@ -319,7 +317,7 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 			continue;
 		}
 
-		if (sessionPtr->sendOverlappedCheck(o))	//send 완료 블록
+		if (sessionPtr->sendOverlappedCheck(overlap))	//send 완료 블록
 		{
 			core->OnSend(sessionPtr->ID, transfer);
 			int tp = sessionPtr->sended(transfer);
@@ -334,7 +332,7 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 				// sended -1 예외처리
 				//
 			}
-			InterlockedExchange(&sessionPtr->sendFlag, 0);
+			InterlockedExchange16(&sessionPtr->sendFlag, 0);
 
 			if (sessionPtr->sendBuffer.size() > 0)
 			{
@@ -344,7 +342,7 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 				}
 			}
 		}
-		else if (sessionPtr->recvOverlappedCheck(o))	//recv 완료 블록
+		else if (sessionPtr->recvOverlappedCheck(overlap))	//recv 완료 블록
 		{
 			if (!(sessionPtr->recved(transfer)))
 			{

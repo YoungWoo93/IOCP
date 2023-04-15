@@ -234,13 +234,13 @@ DWORD WINAPI NetworkClient::workerThread(LPVOID arg)
 			continue;
 		}
 
-		if (sessionPtr->sendOverlappedCheck(o))	//send 완료 블록
+		if (sessionPtr->sendOverlappedCheck(overlap))	//send 완료 블록
 		{
 			core->OnSend(sessionPtr->ID, transfer);
 			core->sendMessageTPSArr[threadIndex] += sessionPtr->sended(transfer);
 
 			//sessionPtr->sendIO();
-			while (InterlockedCompareExchange(&(sessionPtr->sendFlag), 0, 0) == 0 && !(sessionPtr->sendBuffer.empty()))
+			while (InterlockedCompareExchange16((short*) &(sessionPtr->sendFlag), 0, 0) == 0 && !(sessionPtr->sendBuffer.empty()))
 			{
 				if (!sessionPtr->sendIO())
 				{
@@ -252,7 +252,7 @@ DWORD WINAPI NetworkClient::workerThread(LPVOID arg)
 			}
 
 		}
-		else	//recv 완료 블록
+		else if (sessionPtr->sendOverlappedCheck(overlap))	//recv 완료 블록
 		{
 			if (!(sessionPtr->recved(transfer)))
 			{

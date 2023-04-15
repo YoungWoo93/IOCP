@@ -74,12 +74,12 @@ sessionPtr::sessionPtr(session* _session, Network* _core) : ptr(_session), core(
 
 
 session::session()
-	: sendOverlapped(this), recvOverlapped(this), ID(0), socket(0),
+	: ID(0), socket(0),
 	IOcount(1), sendFlag(0),
 	sendBuffer(4096), sendedBuffer(4096), recvBuffer(4096) {
 }
 session::session(UINT64 id, SOCKET sock)
-	: sendOverlapped(this), recvOverlapped(this), ID(id), socket(sock),
+	: ID(id), socket(sock),
 	IOcount(1), sendFlag(0),
 	sendBuffer(4096), sendedBuffer(4096), recvBuffer(4096) {
 }
@@ -123,12 +123,12 @@ bool session::sendIO()
 	if (hasDisconnectRequest())
 		return true;
 
-	if (InterlockedExchange(&sendFlag, 1) == 1)
+	if (InterlockedExchange16(&sendFlag, 1) == 1)
 		return true;
 
 	size_t sendBufferSize = sendBuffer.size();
 	if (sendBufferSize == 0) { // 보낼게 없어서 종료, 동작은 정상상황
-		InterlockedExchange(&sendFlag, 0);
+		InterlockedExchange16(&sendFlag, 0);
 		return true;
 	}
 
@@ -136,7 +136,7 @@ bool session::sendIO()
 
 	if ((sendBufferSize % sizeof(serializer*)) != 0) {// sendBuffer가 꼬인상태, 동작 비정상으로 종료되어야 함
 		LOG(logLevel::Error, LO_TXT, "sendBuffer 꼬임");
-		InterlockedExchange(&sendFlag, 0);
+		InterlockedExchange16(&sendFlag, 0);
 		return false;
 	}
 
@@ -159,16 +159,16 @@ bool session::sendIO()
 
 
 	auto ret = WSASend(socket, buffer, (DWORD)WSAbufferCount, &temp1, 0, (LPWSAOVERLAPPED)&sendOverlapped, NULL);
-
+	
 
 	if (ret == SOCKET_ERROR) {
 		auto errorCode = GetLastError();
 		if (errorCode != WSA_IO_PENDING)
 		{
-			if (errorCode != 10054)
+			if (errorCode != 10054 || errorCode != 10053)
 			{
 				LOG(logLevel::Error, LO_TXT, "WSASend Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
-				InterlockedExchange(&sendFlag, 0);
+				InterlockedExchange16(&sendFlag, 0);
 			}
 			return false;
 		}
@@ -264,7 +264,7 @@ bool session::recvIO()
 		auto errorCode = GetLastError();
 		if (errorCode != WSA_IO_PENDING)
 		{
-			if (errorCode != 10054)
+			if (errorCode != 10054 || errorCode != 10053)
 				LOG(logLevel::Error, LO_TXT, "WSARecv Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
 
 			return false;
@@ -360,10 +360,10 @@ UINT16 session::getPort() {
 	return port;
 }
 
-bool session::sendOverlappedCheck(overlapped* o) {
+bool session::sendOverlappedCheck(OVERLAPPED* o) {
 	return o == &sendOverlapped;
 }
-bool session::recvOverlappedCheck(overlapped* o) {
+bool session::recvOverlappedCheck(OVERLAPPED* o) {
 	return o == &recvOverlapped;
 }
 
