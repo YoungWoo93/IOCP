@@ -81,7 +81,6 @@ public:
 	// 이하 컨텐츠단에서 먼저 호출 가능한 함수들
 	////////////////////////////////////////////////////////////////////////////////////
 	sessionPtr findSession(UINT64 sessionID);
-	void Disconnect(UINT64 sessionID);
 	bool sendPacket(UINT64 sessionID, packet& _pakcet);
 
 protected:

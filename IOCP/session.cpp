@@ -95,13 +95,13 @@ sessionPtr& sessionPtr::operator= (const sessionPtr& s) {
 
 session::session()
 	: sendOverlapped(this), recvOverlapped(this), ID(0), socket(0),
-	IOcount(1), sendFlag(0), disconnectFlag(false),
+	IOcount(1), sendFlag(0),
 	sendBuffer(4096), sendedBuffer(4096), recvBuffer(4096) {
 	onConnect = 0;
 }
 session::session(UINT64 id, SOCKET sock)
 	: sendOverlapped(this), recvOverlapped(this), ID(id), socket(sock),
-	IOcount(1), sendFlag(0), disconnectFlag(false),
+	IOcount(1), sendFlag(0),
 	sendBuffer(4096), sendedBuffer(4096), recvBuffer(4096) {
 	onConnect = 0;
 }
@@ -113,8 +113,6 @@ void session::init(UINT64 id, SOCKET sock, UINT16 _port)
 
 	IOcount = 1;
 	sendFlag = 0;
-	disconnectFlag = false;
-
 	bufferClear();
 }
 
@@ -144,9 +142,6 @@ UINT32 session::incrementIO() {
 
 bool session::sendIO()
 {
-	if (disconnectFlag)
-		return false;
-
 
 
 	if (InterlockedExchange(&sendFlag, 1) == 1)
@@ -161,7 +156,6 @@ bool session::sendIO()
 	if ((sendBufferSize % sizeof(serializer*)) != 0) {// sendBuffer가 꼬인상태, 동작 비정상으로 종료되어야 함
 		LOG(logLevel::Error, LO_TXT, "sendBuffer 꼬임");
 		InterlockedExchange(&sendFlag, 0);
-		disconnectFlag = true;
 		return false;
 	}
 
@@ -192,9 +186,11 @@ bool session::sendIO()
 		if (errorCode != WSA_IO_PENDING)
 		{
 			if (errorCode != 10054)
+			{
 				LOG(logLevel::Error, LO_TXT, "WSASend Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
-			InterlockedIncrement(&IOcount);
-			disconnectFlag = true;
+				InterlockedExchange(&sendFlag, 0);
+				InterlockedDecrement(&IOcount);
+			}
 			return false;
 		}
 	}
@@ -203,7 +199,7 @@ bool session::sendIO()
 }
 
 /// <summary>
-/// send 완료 통지에서 호출, sendflag를 제거하고 sended 버퍼의 시리얼라이저를 반환함. 만약 sendBuffer에 값이 남아있다면 재차 send를 요청함 (sendFlag 변화 없이)
+/// send 완료 통지에서 호출,sended 버퍼의 시리얼라이저를 반환함. (sendFlag 변화 없이)
 /// </summary>
 /// <param name="transfer"> 전송 완료통지 크기, sended처리 후 0이 되어야함</param>
 /// <param name="sendPacketCount"> 전송 완료 패킷 갯수, sended 과정에서 확인함</param>
@@ -232,8 +228,6 @@ int session::sended(DWORD& transfer)
 			serializerFree(packetBuffer);
 	}
 
-	InterlockedExchange(&sendFlag, 0);
-
 	if (transfer < 0)
 		return -1;
 
@@ -250,9 +244,6 @@ int session::sended(DWORD& transfer)
 /// </returns>
 bool session::collectSendPacket(packet& p)
 {
-	if (disconnectFlag)
-		return false;
-
 	if (sendBuffer.freeSize() >= sizeof(serializer*))
 	{
 		p.buffer->incReferenceCounter();
@@ -279,9 +270,6 @@ bool session::collectSendPacket(packet& p)
 /// </returns>
 bool session::recvIO()
 {
-	if (disconnectFlag)
-		return true;
-
 	WSABUF buffer;
 	buffer.buf = recvBuffer.tail();
 	buffer.len = (ULONG)recvBuffer.DirectEnqueueSize();

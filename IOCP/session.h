@@ -133,7 +133,6 @@ public:
 
 	UINT32 IOcount;
 	UINT32 sendFlag;
-	bool disconnectFlag;
 
 	ringBuffer sendBuffer;
 	ringBuffer sendedBuffer;

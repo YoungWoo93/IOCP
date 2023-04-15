@@ -326,8 +326,20 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 		if (sessionPtr->sendOverlappedCheck(o))	//send 완료 블록
 		{
 			core->OnSend(sessionPtr->ID, transfer);
-			core->sendMessageTPSArr[threadIndex] += sessionPtr->sended(transfer);
+			int tp = sessionPtr->sended(transfer);
+			if (tp != -1)
+				core->sendMessageTPSArr[threadIndex] += tp;
+			else
+			{
+				//
+				// sended -1 예외처리
+				//
+			}
 
+			InterlockedExchange(&sessionPtr->sendFlag, 0);
+			// 이순간에는 IOCount 차감 안되있음, sendFlag 꺼져있음 상태
+			// 
+			
 			//sessionPtr->sendIO();
 			while (InterlockedCompareExchange(&(sessionPtr->sendFlag), 0, 0) == 0 && !(sessionPtr->sendBuffer.empty()))
 			{
@@ -441,18 +453,12 @@ sessionPtr Network::findSession(UINT64 sessionID)
 {
 	session* s = sessionArray[(USHORT)sessionID];
 
-	if (s->ID != sessionID || s->disconnectFlag)
+	if (s->ID != sessionID)
 		return sessionPtr(nullptr, this);
 
 	return sessionPtr(s, this);
 }
-void Network::Disconnect(UINT64 sessionID)
-{
-	auto s = findSession(sessionID);
 
-	if (s.ptr != nullptr)
-		s.ptr->disconnectFlag = true;
-}
 bool Network::sendPacket(UINT64 sessionID, packet& _pakcet)
 {
 	sessionPtr s = findSession(sessionID);
