@@ -34,7 +34,7 @@ class sessionPtr;
 class session;
 
 class Network {
-
+	friend class sessionPtr;
 public:
 	Network();
 	~Network();
@@ -49,14 +49,14 @@ public:
 	static DWORD WINAPI acceptThread(LPVOID arg);
 	static DWORD WINAPI workerThread(LPVOID arg);
 
-	void deleteSession(session* sessionPtr);
-
 	size_t getSessionCount();
 	std::pair<size_t, size_t> getSessionPoolMemory();
 	unsigned int getAcceptTPS();
 	unsigned int getRecvMessageTPS();
 	unsigned int getSendMessageTPS();
 
+protected:
+	void deleteSession(session* sessionPtr);
 
 	virtual void OnNewConnect(UINT64 sessionID) = 0;
 	virtual void OnDisconnect(UINT64 sessionID) = 0;
@@ -76,12 +76,14 @@ public:
 	/// </param>
 	virtual void OnError(int errorcode, const char* msg = "") = 0;
 
+	sessionPtr findSession(UINT64 sessionID);
 
+public:
 	////////////////////////////////////////////////////////////////////////////////////
 	// 이하 컨텐츠단에서 먼저 호출 가능한 함수들
 	////////////////////////////////////////////////////////////////////////////////////
-	sessionPtr findSession(UINT64 sessionID);
 	bool sendPacket(UINT64 sessionID, packet& _pakcet);
+	void disconnectReq(UINT64 sessionID);
 
 protected:
 	UINT8 runningThreadCount;

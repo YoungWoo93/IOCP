@@ -67,28 +67,8 @@ sessionPtr::sessionPtr(const sessionPtr& s) {
 
 sessionPtr::sessionPtr(session* _session, Network* _core) : ptr(_session), core(_core) {
 	if (_session != nullptr)
-	{
-		if (_session->incrementIO() == 0)
-		{
-			core->deleteSession(ptr);
-			ptr = nullptr;
-		}
-	}
+		_session->incrementIO();
 }
-
-sessionPtr& sessionPtr::operator= (const sessionPtr& s) {
-	if (s.ptr->incrementIO() == 1)
-	{
-		core->deleteSession(ptr);
-		ptr = nullptr;
-	}
-	else
-		ptr = s.ptr;
-	core = s.core;
-}
-
-
-
 
 
 
@@ -97,13 +77,11 @@ session::session()
 	: sendOverlapped(this), recvOverlapped(this), ID(0), socket(0),
 	IOcount(1), sendFlag(0),
 	sendBuffer(4096), sendedBuffer(4096), recvBuffer(4096) {
-	onConnect = 0;
 }
 session::session(UINT64 id, SOCKET sock)
 	: sendOverlapped(this), recvOverlapped(this), ID(id), socket(sock),
 	IOcount(1), sendFlag(0),
 	sendBuffer(4096), sendedBuffer(4096), recvBuffer(4096) {
-	onConnect = 0;
 }
 void session::init(UINT64 id, SOCKET sock, UINT16 _port)
 {
@@ -117,10 +95,10 @@ void session::init(UINT64 id, SOCKET sock, UINT16 _port)
 }
 
 UINT32 session::decrementIO() {
-	return InterlockedDecrement(&IOcount);
+	return InterlockedDecrement(&IOcount) & 0x7fffffff;
 }
 UINT32 session::incrementIO() {
-	return InterlockedIncrement(&IOcount);
+	return InterlockedIncrement(&IOcount) & 0x7fffffff;
 }
 
 /// <summary>
@@ -142,6 +120,9 @@ UINT32 session::incrementIO() {
 
 bool session::sendIO()
 {
+	if (hasDisconnectRequest())
+		return true;
+
 	if (InterlockedExchange(&sendFlag, 1) == 1)
 		return true;
 
@@ -151,13 +132,14 @@ bool session::sendIO()
 		return true;
 	}
 
+	InterlockedIncrement(&IOcount);
+
 	if ((sendBufferSize % sizeof(serializer*)) != 0) {// sendBuffer가 꼬인상태, 동작 비정상으로 종료되어야 함
 		LOG(logLevel::Error, LO_TXT, "sendBuffer 꼬임");
 		InterlockedExchange(&sendFlag, 0);
 		return false;
 	}
 
-	InterlockedIncrement(&IOcount);
 
 	size_t packetCount = min(sendBufferSize / sizeof(serializer*), 100);
 	size_t WSAbufferCount = 0;
@@ -187,7 +169,6 @@ bool session::sendIO()
 			{
 				LOG(logLevel::Error, LO_TXT, "WSASend Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
 				InterlockedExchange(&sendFlag, 0);
-				InterlockedDecrement(&IOcount);
 			}
 			return false;
 		}
@@ -268,6 +249,9 @@ bool session::collectSendPacket(packet& p)
 /// </returns>
 bool session::recvIO()
 {
+	if (hasDisconnectRequest())
+		return true;
+
 	WSABUF buffer;
 	buffer.buf = recvBuffer.tail();
 	buffer.len = (ULONG)recvBuffer.DirectEnqueueSize();
@@ -334,6 +318,39 @@ bool session::recvedPacket(packet& p)
 	}
 
 	return false;
+}
+/// <summary>
+/// 해당 세션이 모종의 이유로 서버측에서 먼저 끊기 요청된 경우, 해당 플래그 설정
+/// </summary>
+/// <returns>
+/// ioCount에 해당 플래그를 해제한 뒤의 값
+/// </returns>
+UINT32 session::disconnectRegist()
+{
+	return InterlockedOr((LONG*) &IOcount, 0x80000000);
+}
+
+/// <summary>
+/// 해당 세션이 모종의 이유로 서버측에서 먼저 끊기 요청된 경우, 해당 요청수행 후 플래그 해제
+/// </summary>
+/// <returns>
+/// ioCount에 해당 플래그를 해제한 뒤의 값
+/// </returns>
+UINT32 session::disconnectUnregist()
+{
+	return InterlockedAnd((LONG*)&IOcount, 0x7fffffff);
+}
+
+/// <summary>
+/// 해당 세션이 모종의 이유로 서버측에서 먼저 끊기 요청된 상태인지 체크
+/// </summary>
+/// <returns>
+/// true : 끊기 요청상태임
+/// false : 아님
+/// </returns>
+bool session::hasDisconnectRequest()
+{
+	return (IOcount & 0x80000000) != 0;
 }
 
 SOCKET session::getSocket() {

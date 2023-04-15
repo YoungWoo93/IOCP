@@ -223,8 +223,6 @@ DWORD WINAPI Network::networkThread(LPVOID arg)
 
 DWORD WINAPI Network::acceptThread(LPVOID arg) {
 	Network* core = ((Network*)arg);
-	core->sessionPool.init();
-	serializerPool.init();
 
 	while (core->isRun)
 	{
@@ -290,10 +288,10 @@ DWORD WINAPI Network::acceptThread(LPVOID arg) {
 		}
 	}
 
-	core->sessionPool.clear();
-	serializerPool.clear();
 	return 0;
 }
+
+UINT64 temp1Counter = 0;
 
 DWORD WINAPI Network::workerThread(LPVOID arg)
 {
@@ -304,8 +302,6 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 	session* sessionPtr;
 	OVERLAPPED* overlap;
 	overlapped* o;
-	core->sessionPool.init();
-	serializerPool.init();
 
 	while (core->isRun)
 	{
@@ -331,6 +327,9 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 				core->sendMessageTPSArr[threadIndex] += tp;
 			else
 			{
+				if (sessionPtr->decrementIO() == 0)
+					core->deleteSession(sessionPtr);
+				continue;
 				//
 				// sended -1 예외처리
 				//
@@ -338,9 +337,14 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 			InterlockedExchange(&sessionPtr->sendFlag, 0);
 
 			if (sessionPtr->sendBuffer.size() > 0)
-				sessionPtr->sendIO();
+			{
+				if (!sessionPtr->sendIO()){
+					if (sessionPtr->decrementIO() == 0)
+						core->deleteSession(sessionPtr);
+				}
+			}
 		}
-		else	//recv 완료 블록
+		else if (sessionPtr->recvOverlappedCheck(o))	//recv 완료 블록
 		{
 			if (!(sessionPtr->recved(transfer)))
 			{
@@ -353,13 +357,14 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 
 			while (true) {
 				packet p;
-				if (!sessionPtr->recvedPacket(p))
+				if (!sessionPtr->recvedPacket(p)) 
 					break;
 
 				core->recvMessageTPSArr[threadIndex]++;
 				core->OnRecv(sessionPtr->ID, p);
 			}
 
+	
 			//sessionPtr->incrementIO();
 			//if (!sessionPtr->recvIO())
 			//{
@@ -371,12 +376,15 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 			if (sessionPtr->recvIO())
 				sessionPtr->incrementIO();
 		}
+		else
+		{
+			InterlockedIncrement(&temp1Counter);
+			continue;
+		}
 
 		if (sessionPtr->decrementIO() == 0)
 			core->deleteSession(sessionPtr);
 	}
-	core->sessionPool.clear();
-	serializerPool.clear();
 	return 0;
 }
 
@@ -388,6 +396,8 @@ void Network::deleteSession(session* sessionPtr)
 	USHORT index = (USHORT)sessionPtr->ID;
 
 	closesocket(sessionPtr->socket);
+	sessionPtr->disconnectUnregist();
+	sessionArray[index] = nullptr;
 
 	sessionPtr->bufferClear();
 	AcquireSRWLockExclusive(&sessionPoolLock);
@@ -433,26 +443,26 @@ unsigned int Network::getSendMessageTPS()
 	return sendMessageTPS;
 }
 
+sessionPtr Network::findSession(UINT64 sessionID)
+{
+	sessionPtr ret(sessionArray[(USHORT)sessionID], this);
+
+	if (sessionArray[(USHORT)sessionID]->ID != sessionID)
+		return sessionPtr(nullptr, this);
+
+	return ret;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////
 // 이하 컨텐츠단에서 먼저 호출 가능한 함수들
 ////////////////////////////////////////////////////////////////////////////////////
-sessionPtr Network::findSession(UINT64 sessionID)
-{
-	session* s = sessionArray[(USHORT)sessionID];
-
-	if (s->ID != sessionID)
-		return sessionPtr(nullptr, this);
-
-	return sessionPtr(s, this);
-}
-
 bool Network::sendPacket(UINT64 sessionID, packet& _pakcet)
 {
 	sessionPtr s = findSession(sessionID);
-
+	
 	if (s.ptr == nullptr)
 		return false;
-
+	/*/
 	{
 		if (s.ptr->sendBuffer.freeSize() >= sizeof(serializer*))
 		{
@@ -480,6 +490,16 @@ bool Network::sendPacket(UINT64 sessionID, packet& _pakcet)
 			}
 		}
 	}
-	/*/
+	//
 	return true;
+}
+
+void Network::disconnectReq(UINT64 sessionID)
+{
+	sessionPtr s = findSession(sessionID);
+
+	if (s.ptr == nullptr)
+		return;
+
+	s.ptr->disconnectRegist();
 }

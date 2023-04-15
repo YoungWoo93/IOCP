@@ -39,6 +39,11 @@ void printDay(UINT64 tick)
 
 void main()
 {
+	cout << sizeof(ringBuffer) << "\t" << alignof(ringBuffer) << endl;
+	cout << sizeof(overlapped) << "\t" << alignof(overlapped) << endl;
+	cout << sizeof(SOCKET) << "\t" << alignof(SOCKET) << endl;
+	cout << sizeof(session) << "\t" << alignof(session) << endl;
+	cout << sizeof(OVERLAPPED) << "\t" << alignof(OVERLAPPED) << endl;
 	CCrashDump cd;
 	//loggerInit("errorCode");
 	printf("hi %s logging ver\n", __VER__);
