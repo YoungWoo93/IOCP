@@ -30,16 +30,24 @@ void serializerFree(serializer* s);
 serializer* serializerAlloc();
 void setHeader(packet& p);
 
-struct packetHeader {
-	short size;
-};
+
 
 class packet {
+public:
+#pragma pack(push, 1)
+	struct packetHeader {
+		char code;
+		short size;
+		char randKey;
+		char checkSum;
+	};
+#pragma pack(pop)
 public:
 	serializer* buffer;
 
 	packet() {
 		buffer = serializerAlloc();
+		buffer->clean();
 
 		buffer->incReferenceCounter();
 		buffer->moveRear(sizeof(packetHeader));
@@ -56,6 +64,15 @@ public:
 		buffer->incReferenceCounter();
 	}
 
+	packetHeader* getPacketHeader()
+	{
+		return (packetHeader*)buffer->getBufferPtr();
+	}
+
+	char* getPayload()
+	{
+		return buffer->getBufferPtr() + sizeof(packetHeader);
+	}
 
 	packet& operator << (const char v) {
 		(*buffer) << v;
@@ -196,6 +213,8 @@ public:
 
 		return *this;
 	}
+
+	
 };
 
 

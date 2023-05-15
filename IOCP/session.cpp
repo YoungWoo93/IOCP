@@ -35,18 +35,6 @@
 #include "network.h"
 
 
-
-overlapped::overlapped(session* s) : sessionptr(s) {
-	memset(&overlap, 0, sizeof(OVERLAPPED));
-}
-void overlapped::init(session* s) {
-	sessionptr = s;
-	memset(&overlap, 0, sizeof(OVERLAPPED));
-}
-
-
-
-
 sessionPtr::~sessionPtr() {
 	if (ptr == nullptr)
 		return;
@@ -60,28 +48,32 @@ sessionPtr::~sessionPtr() {
 }
 
 sessionPtr::sessionPtr(const sessionPtr& s) {
-	s.ptr->incrementIO();
+	if (s.ptr != nullptr)
+		s.ptr->incrementIO();
 	ptr = s.ptr;
 	core = s.core;
 }
 
 sessionPtr::sessionPtr(session* _session, Network* _core) : ptr(_session), core(_core) {
 	if (_session != nullptr)
-		_session->incrementIO();
+	{
+		if (_session->incrementIO() == 1)
+		{
+			_session->decrementIO();
+			ptr = nullptr;
+		}
+	}
 }
-
-
-
 
 session::session()
 	: ID(0), socket(0),
 	IOcount(1), sendFlag(0),
-	sendBuffer(4096), sendedBuffer(4096), recvBuffer(4096) {
+	sendBuffer(1000, 1000), sendedBuffer(4096), recvBuffer(4096) {
 }
 session::session(UINT64 id, SOCKET sock)
 	: ID(id), socket(sock),
 	IOcount(1), sendFlag(0),
-	sendBuffer(4096), sendedBuffer(4096), recvBuffer(4096) {
+	sendBuffer(1000, 1000), sendedBuffer(4096), recvBuffer(4096) {
 }
 void session::init(UINT64 id, SOCKET sock, UINT16 _port)
 {
@@ -92,6 +84,9 @@ void session::init(UINT64 id, SOCKET sock, UINT16 _port)
 	IOcount = 1;
 	sendFlag = 0;
 	bufferClear();
+
+	memset(&sendOverlapped, 0, sizeof(OVERLAPPED));
+	memset(&recvOverlapped, 0, sizeof(OVERLAPPED));
 }
 
 UINT32 session::decrementIO() {
@@ -126,7 +121,7 @@ bool session::sendIO()
 	if (InterlockedExchange16(&sendFlag, 1) == 1)
 		return true;
 
-	size_t sendBufferSize = sendBuffer.size();
+	size_t sendBufferSize = sendBuffer.size();	// 잠재적 에러 가능, size는 1 이상이지만 연결은 안된 상태일데
 	if (sendBufferSize == 0) { // 보낼게 없어서 종료, 동작은 정상상황
 		InterlockedExchange16(&sendFlag, 0);
 		return true;
@@ -134,22 +129,25 @@ bool session::sendIO()
 
 	InterlockedIncrement(&IOcount);
 
-	if ((sendBufferSize % sizeof(serializer*)) != 0) {// sendBuffer가 꼬인상태, 동작 비정상으로 종료되어야 함
-		LOG(logLevel::Error, LO_TXT, "sendBuffer 꼬임");
-		InterlockedExchange16(&sendFlag, 0);
-		return false;
-	}
+	//if ((sendBufferSize % sizeof(serializer*)) != 0) {// sendBuffer가 꼬인상태, 동작 비정상으로 종료되어야 함
+	//	LOG(logLevel::Error, LO_TXT, "sendBuffer 꼬임");
+	//	InterlockedExchange16(&sendFlag, 0);
+	//	return false;
+	//}
 
 
-	size_t packetCount = min(sendBufferSize / sizeof(serializer*), 100);
+	//size_t packetCount = min(sendBufferSize / sizeof(serializer*), 100);
+	size_t packetCount = sendBufferSize;
 	size_t WSAbufferCount = 0;
 	WSABUF buffer[100];
 	memset(buffer, 0, sizeof(WSABUF) * packetCount);
 
 	for (WSAbufferCount = 0; WSAbufferCount < packetCount; WSAbufferCount++)
 	{
-		serializer* temp;
-		sendBuffer.pop((char*)&temp, sizeof(serializer*));
+		serializer* temp = 0;
+		//sendBuffer.pop((char*)&temp, sizeof(serializer*));
+		sendBuffer.pop(temp);
+
 		buffer[WSAbufferCount].buf = temp->getHeadPtr();
 		buffer[WSAbufferCount].len = (ULONG)temp->size();
 		sendedBuffer.push((char*)&temp, sizeof(serializer*));
@@ -165,11 +163,15 @@ bool session::sendIO()
 		auto errorCode = GetLastError();
 		if (errorCode != WSA_IO_PENDING)
 		{
-			if (errorCode != 10054 || errorCode != 10053)
+			if (errorCode != 10054 && errorCode != 10053 && errorCode != 10038)
 			{
 				LOG(logLevel::Error, LO_TXT, "WSASend Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
 				InterlockedExchange16(&sendFlag, 0);
+				//int* temp = nullptr;
+				//*temp = 10;
 			}
+
+			
 			return false;
 		}
 	}
@@ -223,20 +225,24 @@ int session::sended(DWORD& transfer)
 /// </returns>
 bool session::collectSendPacket(packet& p)
 {
-	if (sendBuffer.freeSize() >= sizeof(serializer*))
-	{
-		p.buffer->incReferenceCounter();
-		auto ret = sendBuffer.push((char*)&(p.buffer), sizeof(serializer*));
+	p.buffer->incReferenceCounter();
+	sendBuffer.push(p.buffer); // 이후 sendBuffer의 크기를 제한할 일이 생긴다면 (꽉차서 짤라내기 등) 이곳에서 조건탈것
+	return true;
 
-		if (ret != sizeof(serializer*))
-		{
-			printf("brake here");
-		}
-		return true;
-	}
-	else {
-		return false;
-	}
+	//if (sendBuffer.freeSize() >= sizeof(serializer*))
+	//{
+	//	p.buffer->incReferenceCounter();
+	//	auto ret = sendBuffer.push((char*)&(p.buffer), sizeof(serializer*));
+	//
+	//	if (ret != sizeof(serializer*))
+	//	{
+	//		printf("brake here");
+	//	}
+	//	return true;
+	//}
+	//else {
+	//	return false;
+	//}
 }
 
 
@@ -264,9 +270,13 @@ bool session::recvIO()
 		auto errorCode = GetLastError();
 		if (errorCode != WSA_IO_PENDING)
 		{
-			if (errorCode != 10054 || errorCode != 10053)
+			if (errorCode != 10054 && errorCode != 10053 && errorCode != 10038)
+			{
 				LOG(logLevel::Error, LO_TXT, "WSARecv Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
-
+				//int* temp = nullptr;
+				//*temp = 10;
+			}
+			
 			return false;
 		}
 	}
@@ -301,15 +311,16 @@ bool session::recved(DWORD& transfer)
 /// </returns>
 bool session::recvedPacket(packet& p)
 {
-	if (recvBuffer.size() >= sizeof(packetHeader))
+	if (recvBuffer.size() >= sizeof(packet::packetHeader))
 	{
-		packetHeader h;
-		recvBuffer.front((char*)&h, sizeof(packetHeader));
+		packet::packetHeader* h = (packet::packetHeader*)recvBuffer.head();
+		//recvBuffer.front((char*)&h, sizeof(packet::packetHeader));
 
-		if (recvBuffer.size() >= sizeof(packetHeader) + h.size)
+		if (recvBuffer.size() >= sizeof(packet::packetHeader) + h->size)
 		{
-			p.buffer->moveRear(sizeof(packetHeader) + h.size);
-			recvBuffer.pop(p.buffer->getHeadPtr(), sizeof(packetHeader) + h.size);
+			recvBuffer.pop((char*)p.getPacketHeader(), sizeof(packet::packetHeader) + h->size);
+			p.buffer->moveRear(h->size);
+			p.buffer->moveFront(-(int)sizeof(packet::packetHeader));
 
 			return true;
 		}
@@ -371,12 +382,17 @@ void session::bufferClear()
 {
 	serializer* packetBuffer;
 
-	while (!sendBuffer.empty())
+	while (sendBuffer.pop(packetBuffer) != -1)
 	{
-		sendBuffer.pop((char*)&packetBuffer, sizeof(serializer*));
 		if (packetBuffer->decReferenceCounter() == 0)
 			serializerFree(packetBuffer);
 	}
+	//while (!sendBuffer.empty())
+	//{
+	//	sendBuffer.pop((char*)&packetBuffer, sizeof(serializer*));
+	//	if (packetBuffer->decReferenceCounter() == 0)
+	//		serializerFree(packetBuffer);
+	//}
 
 	while (!sendedBuffer.empty())
 	{

@@ -47,6 +47,15 @@ void NetworkServer::OnRecv(UINT64 sessionID, packet& _packet)
 
 	_packet >> h >> v;
 
+
+	{
+		packet decryptionPacket;
+		int size = 0;
+		decryption(_packet.buffer->getHeadPtr(), _packet.buffer->size(), decryptionPacket.buffer->getHeadPtr(), &size);
+		decryptionPacket.buffer->moveRear(size);
+	}
+
+
 	packet p;
 	(*p.buffer) << v;
 	setHeader(p);
@@ -69,4 +78,23 @@ void NetworkServer::OnError(int code, const char* msg)
 	LOG(logLevel::Error, LO_TXT, errorCodeComment[code] + msg);
 
 	return;
+}
+
+
+bool NetworkServer::sendPacket(UINT64 sessionID, packet& _packet)
+{
+	sessionPtr s = findSession(sessionID);
+
+	if (!s.valid())
+		return false;
+
+	packet encryptionPacket;
+	int size = 0;
+	encryption(_packet.buffer->getHeadPtr(), _packet.buffer->size(), encryptionPacket.buffer->getHeadPtr(), &size);
+	encryptionPacket.buffer->moveRear(size);
+
+	if (s.collectSendPacket(_packet))
+		s.sendIO();
+
+	return true;
 }

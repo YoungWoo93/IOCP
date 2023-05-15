@@ -36,9 +36,11 @@ serializer* serializerAlloc()
 
 void setHeader(packet& p)
 {
-	packetHeader h;
+	packet::packetHeader h;
+	h.code = 0x77;
 	h.size = (short)p.buffer->size();
-	p.buffer->moveFront(-(long long int)(sizeof(packetHeader)));
+	p.buffer->moveFront(-(long long int)(sizeof(packet::packetHeader)));
 
-	memcpy_s(p.buffer->getHeadPtr(), sizeof(packetHeader), &h, sizeof(packetHeader));
+	//memcpy_s(p.buffer->getHeadPtr(), sizeof(packetHeader), &h, sizeof(packetHeader));
+	memcpy_s(p.buffer->getHeadPtr(), sizeof(h.code) + sizeof(h.size), &h, sizeof(h.code) + sizeof(h.size));
 }

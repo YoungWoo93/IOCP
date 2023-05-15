@@ -57,6 +57,7 @@ public:
 
 protected:
 	void deleteSession(session* sessionPtr);
+	void deleteSession(sessionPtr* sessionPtr);
 
 	virtual void OnNewConnect(UINT64 sessionID) = 0;
 	virtual void OnDisconnect(UINT64 sessionID) = 0;
@@ -76,14 +77,13 @@ protected:
 	/// </param>
 	virtual void OnError(int errorcode, const char* msg = "") = 0;
 
-	sessionPtr findSession(UINT64 sessionID);
-	
 public:
 	////////////////////////////////////////////////////////////////////////////////////
 	// 이하 컨텐츠단에서 먼저 호출 가능한 함수들
 	////////////////////////////////////////////////////////////////////////////////////
 	bool sendPacket(UINT64 sessionID, packet& _pakcet);
 	void disconnectReq(UINT64 sessionID);
+	sessionPtr findSession(UINT64 sessionID);
 
 protected:
 	UINT8 runningThreadCount;
@@ -97,8 +97,9 @@ protected:
 
 	SRWLOCK sessionPoolLock;
 	ObjectPool<session> sessionPool;
-
+public:
 	session** sessionArray;
+protected:
 	SRWLOCK indexStackLock;
 	std::stack<UINT16> indexStack;
 

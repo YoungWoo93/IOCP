@@ -240,16 +240,16 @@ DWORD WINAPI NetworkClient::workerThread(LPVOID arg)
 			core->sendMessageTPSArr[threadIndex] += sessionPtr->sended(transfer);
 
 			//sessionPtr->sendIO();
-			while (InterlockedCompareExchange16((short*) &(sessionPtr->sendFlag), 0, 0) == 0 && !(sessionPtr->sendBuffer.empty()))
-			{
-				if (!sessionPtr->sendIO())
-				{
-					if (sessionPtr->decrementIO() == 0) {
-						core->deleteSession(sessionPtr);
-						break;
-					}
-				}
-			}
+			//while (InterlockedCompareExchange16((short*) &(sessionPtr->sendFlag), 0, 0) == 0 && !(sessionPtr->sendBuffer.empty()))
+			//{
+			//	if (!sessionPtr->sendIO())
+			//	{
+			//		if (sessionPtr->decrementIO() == 0) {
+			//			core->deleteSession(sessionPtr);
+			//			break;
+			//		}
+			//	}
+			//}
 
 		}
 		else if (sessionPtr->sendOverlappedCheck(overlap))	//recv 완료 블록

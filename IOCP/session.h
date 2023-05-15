@@ -11,39 +11,18 @@
 #include "MemoryPool/MemoryPool/MemoryPool.h"
 #include "MessageLogger/MessageLogger/MessageLogger.h"
 
+#include "customDataStructure/customDataStructure/queue_LockFree_TLS.h"
+
 #include "errorDefine.h"
 #include "packet.h"
+
 
 struct overlapped;
 class sessionPtr;
 class session;
 class Network;
 
-struct overlapped{
-public:
-	overlapped(session* s);
-	void init(session* s);
 
-	OVERLAPPED overlap;
-	session* sessionptr;
-};
-
-
-
-class sessionPtr {
-	friend class Network;
-public:
-	~sessionPtr();
-
-	sessionPtr(const sessionPtr& s);
-
-	UINT32 ID;
-
-private:
-	sessionPtr(session* _session, Network* _core);
-	session* ptr;
-	Network* core;
-};
 
 
 
@@ -156,7 +135,8 @@ public:
 	UINT16 port;						//2
 	short sendFlag;						//2		- interlock
 	UINT32 IOcount;						//4		- interlock
-	ringBuffer sendBuffer;				//32
+	//ringBuffer sendBuffer;				//32
+	queue_LockFreeTLS<serializer*> sendBuffer; //112
 
 	//alignas(64) 
 	OVERLAPPED sendOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
@@ -170,7 +150,7 @@ public:
 
 //0	 1	 2	 3	 4	 5	 6	 7	 8	 9	 10	 11	 12	 13	 14	 15	 16	 17	 18	 19	 20	 21	 22	 23	 24	 25	 26	 27	 28	 29	 30	 31	 32	 33	 34	 35	 36	 37	 38	 39	 40	 41	 42	 43	 44	 45	 46	 47	 48	 49	 50	 51	 52	 53	 54	 55	 56	 57	 58	 59	 60	 61	 62	 63
 //	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	|	
-//		ID	(0~7) 8/8			|	socket (8~15) 8/8			| port	|-------|  IOcount		| -이후 락프리 들어갈곳, 현재 sendBuffer																											|	
+//		ID	(0~7) 8/8			|	socket (8~15) 8/8			| port	| sendF |  IOcount		| -이후 락프리 들어갈곳, 현재 sendBuffer																											|	
 //	send overlapped	(0 ~ 31) 32/8																								|	recv overlapped (32 ~  63) 32/8
 //	sended buffer	(0 ~ 31) 32/8																								|	recv buffer (32 ~  63) 32/8
 // sFlag|
@@ -179,3 +159,36 @@ public:
 //
 //
 
+
+
+
+class sessionPtr {
+	friend class Network;
+public:
+	~sessionPtr();
+
+	sessionPtr(const sessionPtr& s);
+
+	inline bool valid() {
+		return ptr != nullptr;
+	}
+	inline bool collectSendPacket(packet& p) {
+		return ptr->collectSendPacket(p);
+	}
+	inline bool sendIO() {
+		return ptr->sendIO();
+	}
+	inline UINT32 decrementIO() {
+		return ptr->decrementIO();
+	}
+	inline UINT32 incrementIO() {
+		return ptr->incrementIO();
+	}
+
+	UINT32 ID;
+
+private:
+	sessionPtr(session* _session, Network* _core);
+	session* ptr;
+	Network* core;
+};

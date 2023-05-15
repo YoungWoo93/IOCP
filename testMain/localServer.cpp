@@ -18,11 +18,16 @@
 
 #include "IOCP/IOCP/network.h"
 #include "IOCP/IOCP/session.h"
-#include "localServer.h"
+
+#include "LocalServer.h"
 
 void LocalServer::OnNewConnect(UINT64 sessionID)
 {
-	return;
+	packet p;
+	(*p.buffer) << (unsigned long long int)(0x7fffffffffffffff);
+	setHeader(p);
+
+	sendPacket(sessionID, p);
 }
 
 void LocalServer::OnDisconnect(UINT64 sessionID)
@@ -37,7 +42,16 @@ bool LocalServer::OnConnectionRequest(ULONG ip, USHORT port)
 
 void LocalServer::OnRecv(UINT64 sessionID, packet& _packet)
 {
-	return;
+	short h;
+	UINT64 v;
+
+	_packet >> h >> v;
+
+	packet p;
+	(*p.buffer) << v;
+	setHeader(p);
+
+	auto ret = sendPacket(sessionID, p);
 }
 
 
