@@ -68,12 +68,12 @@ sessionPtr::sessionPtr(session* _session, Network* _core) : ptr(_session), core(
 session::session()
 	: ID(0), socket(0),
 	IOcount(1), sendFlag(0),
-	sendBuffer(1000, 1000), sendedBuffer(4096), recvBuffer(4096) {
+	sendBuffer(1000), sendedBuffer(4096), recvBuffer(4096) {
 }
 session::session(UINT64 id, SOCKET sock)
 	: ID(id), socket(sock),
 	IOcount(1), sendFlag(0),
-	sendBuffer(1000, 1000), sendedBuffer(4096), recvBuffer(4096) {
+	sendBuffer(1000), sendedBuffer(4096), recvBuffer(4096) {
 }
 void session::init(UINT64 id, SOCKET sock, UINT16 _port)
 {

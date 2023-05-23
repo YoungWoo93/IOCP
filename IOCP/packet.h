@@ -1,13 +1,11 @@
 #pragma once
 
 #ifdef _DEBUG
-#pragma comment(lib, "RingBufferD")
 #pragma comment(lib, "MemoryPoolD")
 #pragma comment(lib, "SerializerD")
 #pragma comment(lib, "MessageLoggerD")
 
 #else
-#pragma comment(lib, "RingBuffer")
 #pragma comment(lib, "MemoryPool")
 #pragma comment(lib, "Serializer")
 #pragma comment(lib, "MessageLogger")
@@ -15,7 +13,6 @@
 #endif
 
 
-#include "RingBuffer/RingBuffer/RingBuffer.h"
 #include "MemoryPool/MemoryPool/MemoryPool.h"
 #include "Serializer/Serializer/Serializer.h"
 #include "Serializer/Serializer/PacketSerializer.h"
@@ -68,6 +65,26 @@ public:
 		buffer = p.buffer;
 		buffer->incReferenceCounter();
 	}
+
+	int incReferenceCounter(int size = 1)
+	{
+		return buffer->incReferenceCounter(size);
+	}
+
+	int decReferenceCounter(int size = 1)
+	{
+		int ret = buffer->decReferenceCounter(size);
+		if (ret == 0)
+		{
+			AcquireSRWLockExclusive(&serializerPoolLock);
+			serializerPool.Free(this->buffer);
+			ReleaseSRWLockExclusive(&serializerPoolLock);
+			buffer = nullptr;
+		}
+
+		return ret;
+	}
+
 
 	packetHeader* getPacketHeader()
 	{

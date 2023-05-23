@@ -11,14 +11,12 @@
 #pragma comment(lib, "ws2_32")
 
 #ifdef _DEBUG
-#pragma comment(lib, "RingBufferD")
 #pragma comment(lib, "MemoryPoolD")
 #pragma comment(lib, "SerializerD")
 #pragma comment(lib, "MessageLoggerD")
 #pragma comment(lib, "crashDumpD")
 
 #else
-#pragma comment(lib, "RingBuffer")
 #pragma comment(lib, "MemoryPool")
 #pragma comment(lib, "Serializer")
 #pragma comment(lib, "MessageLogger")
@@ -33,7 +31,6 @@
 #include <stack>
 #include <unordered_map>
 
-#include "RingBuffer/RingBuffer/RingBuffer.h"
 #include "MemoryPool/MemoryPool/MemoryPool.h"
 #include "Serializer/Serializer/Serializer.h"
 #include "MessageLogger/MessageLogger/MessageLogger.h"

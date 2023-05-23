@@ -1,5 +1,4 @@
 #ifdef _DEBUG
-#pragma comment(lib, "RingBufferD")
 #pragma comment(lib, "MemoryPoolD")
 #pragma comment(lib, "SerializerD")
 #pragma comment(lib, "MessageLoggerD")
@@ -7,7 +6,6 @@
 #pragma comment(lib, "IOCPD")
 
 #else
-#pragma comment(lib, "RingBuffer")
 #pragma comment(lib, "MemoryPool")
 #pragma comment(lib, "Serializer")
 #pragma comment(lib, "MessageLogger")

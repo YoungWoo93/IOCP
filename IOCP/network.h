@@ -17,7 +17,6 @@
 #include <stack>
 #include <map>
 
-#include "RingBuffer/RingBuffer/RingBuffer.h"
 #include "MemoryPool/MemoryPool/MemoryPool.h"
 #include "Serializer/Serializer/Serializer.h"
 

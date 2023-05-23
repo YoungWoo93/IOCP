@@ -64,10 +64,6 @@ void main()
 		p = packetPoolMemoryCheck();
 		printf("\tpacketPool\t: %4zu / %4zu\n\n", p.second, p.first);
 		
-		if(c.sessionArray[0] != nullptr)
-			printf("\session 0 send queue\t: %4zu / %4zu (%4zu)\n", c.sessionArray[0]->sendBuffer.np.useBlockCount, c.sessionArray[0]->sendBuffer.np.maxBlockCount, c.sessionArray[0]->sendBuffer.np.blockSize);
-		if (c.sessionArray[1] != nullptr)
-			printf("\session 1 send queue\t: %4zu / %4zu (%4zu)\n\n\n\n", c.sessionArray[1]->sendBuffer.np.useBlockCount, c.sessionArray[1]->sendBuffer.np.maxBlockCount, c.sessionArray[0]->sendBuffer.np.blockSize);
 		//LOGOUT(logLevel::Info, LO_TXT) << "\t" << c.getSendMessageTPS() << "\t" << c.getRecvMessageTPS() << LOGEND;
 	}
 

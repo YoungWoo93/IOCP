@@ -29,10 +29,11 @@ public:
 	{
 		UINT64 pushCount = InterlockedIncrement(&pushs);
 		node* n = np.Alloc();
+		if (n == nullptr)
+			return false;
 
 		UINT64 newKey = MAKE_KEY(n, pushCount);
-		if (newKey == nullptr)
-			return false;
+		
 
 		n->value = t;
 		n->key = NULL;
