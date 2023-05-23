@@ -31,7 +31,6 @@ serializer* serializerAlloc();
 void setHeader(packet& p);
 
 
-
 class packet {
 public:
 #pragma pack(push, 1)
@@ -55,9 +54,15 @@ public:
 	}
 
 	~packet() {
-		if (buffer->decReferenceCounter() == 0) {
+		int temp = buffer->decReferenceCounter();
+		if (temp < 0)
+		{
+			cout << "error" << endl;
+		}
+		if (temp == 0) {
 			serializerFree(buffer);
 		}
+
 	}
 	packet(packet& p) {
 		buffer = p.buffer;
@@ -187,8 +192,15 @@ public:
 	}
 
 	packet& operator = (packet& p) {
-		if (this->buffer->decReferenceCounter() == 0)
+		int temp = this->buffer->decReferenceCounter();
+
+		if (temp == 0)
 		{
+			if (temp < 0)
+			{
+				cout << "error" << endl;
+			}
+
 			AcquireSRWLockExclusive(&serializerPoolLock);
 			serializerPool.Free(this->buffer);
 			ReleaseSRWLockExclusive(&serializerPoolLock);
@@ -201,8 +213,15 @@ public:
 	}
 
 	packet& operator = (serializer* s) {
-		if (this->buffer->decReferenceCounter() == 0)
+		int temp = this->buffer->decReferenceCounter();
+
+		if (temp == 0)
 		{
+			if (temp < 0)
+			{
+				cout << "error" << endl;
+			}
+
 			AcquireSRWLockExclusive(&serializerPoolLock);
 			serializerPool.Free(this->buffer);
 			ReleaseSRWLockExclusive(&serializerPoolLock);
@@ -214,7 +233,7 @@ public:
 		return *this;
 	}
 
-	
+
 };
 
 

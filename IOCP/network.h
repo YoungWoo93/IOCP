@@ -92,13 +92,16 @@ protected:
 	unsigned int* recvMessageTPSArr;
 	unsigned int* sendMessageTPSArr;
 	unsigned int acceptTPS;
-	unsigned int recvMessageTPS;
+	unsigned int recvMessageTPS; 
 	unsigned int sendMessageTPS;
 
 	SRWLOCK sessionPoolLock;
 	ObjectPool<session> sessionPool;
 public:
 	session** sessionArray;
+	//오규리 :: 만약에 성능 안나오면 구조체 배열로 가는것도 고려해보자!!!!!
+
+
 protected:
 	SRWLOCK indexStackLock;
 	std::stack<UINT16> indexStack;

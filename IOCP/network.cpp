@@ -102,6 +102,17 @@ bool Network::start(const USHORT port, const UINT16 maxSessionSize,
 		return false;
 	}
 
+	linger l = { 0, 0 };
+	if (setsockopt(listen_socket, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l)) != 0)
+		LOG(logLevel::Error, LO_TXT, "Error in set Linger " + to_string(listen_socket) + " socket, error : " + to_string(GetLastError()));
+
+	int optVal = 0;
+	//setsockopt(client_sock, SOL_SOCKET, SO_SNDBUF, (char*)&optVal, sizeof(optVal));
+
+	int nagleOpt = TRUE;
+	if (setsockopt(listen_socket, IPPROTO_TCP, TCP_NODELAY, (char*)&nagleOpt, sizeof(nagleOpt)) != 0)
+		LOG(logLevel::Error, LO_TXT, "Error in set Nodelay" + to_string(listen_socket) + " socket, error : " + to_string(GetLastError()));
+
 	SOCKADDR_IN serverAddr;
 	memset(&serverAddr, 0, sizeof(serverAddr));
 	serverAddr.sin_family = AF_INET;
@@ -245,6 +256,19 @@ DWORD WINAPI Network::acceptThread(LPVOID arg) {
 			continue;
 		}
 
+		//{
+		//	linger l = { 0, 0 };
+		//	if (setsockopt(client_sock, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l)) != 0)
+		//		LOG(logLevel::Error, LO_TXT, "Error in set Linger " + to_string(client_sock) + " socket, error : " + to_string(GetLastError()));
+		//
+		//	int optVal = 0;
+		//	//setsockopt(client_sock, SOL_SOCKET, SO_SNDBUF, (char*)&optVal, sizeof(optVal));
+		//
+		//	int nagleOpt = TRUE;
+		//	if (setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nagleOpt, sizeof(nagleOpt)) != 0)
+		//		LOG(logLevel::Error, LO_TXT, "Error in set Nodelay" + to_string(client_sock) + " socket, error : " + to_string(GetLastError()));
+		//}
+
 		USHORT index = -1;
 
 		AcquireSRWLockExclusive(&(core->indexStackLock));
@@ -261,17 +285,7 @@ DWORD WINAPI Network::acceptThread(LPVOID arg) {
 		}
 		ReleaseSRWLockExclusive(&(core->indexStackLock));
 
-		linger l = { 0, 0 };
-		if(setsockopt(client_sock, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l)) != 0)
-			LOG(logLevel::Error, LO_TXT, "Error in set Linger " + to_string(client_sock) + " socket, error : " + to_string(GetLastError()));
-
-		int optVal = 0;
-		//setsockopt(client_sock, SOL_SOCKET, SO_SNDBUF, (char*)&optVal, sizeof(optVal));
-
-		int nagleOpt = TRUE;
-		if(setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nagleOpt, sizeof(nagleOpt)) != 0)
-			LOG(logLevel::Error, LO_TXT, "Error in set Nodelay" + to_string(client_sock) + " socket, error : " + to_string(GetLastError()));
-
+		
 		//AcquireSRWLockExclusive(&(core->sessionPoolLock));
 		session* sessionPtr = core->sessionPool.Alloc();
 		//ReleaseSRWLockExclusive(&(core->sessionPoolLock));
@@ -351,6 +365,7 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 				// sended -1 예외처리
 				//
 			}
+
 			InterlockedExchange16(&sessionPtr->sendFlag, 0);
 
 			if (sessionPtr->sendBuffer.size() > 0) // 잠재적 에러 가능 (size는 1 이상인데 실제 들어있는것은 없는 경우
@@ -407,6 +422,29 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 
 void Network::deleteSession(session* sessionPtr)
 {
+	//오규리 :: 질문 1) IO Count 내부에 있는 플래그는 누구? - IO를 취소하라는 플래
+	//오규리 :: 질문 2) Disconnect에 대한 플래그는 언제 ON/OFF? - PQCS 안하면 disconnect에 대한 플래그 없
+	//오규리 :: 질문 3) 원장님이 IO Count랑 동시에 체크하라는 플래그는 Disconnect(Delete라 표현하심) 플래그였다.
+				//왜 동시에 체크해야 하는가? - 동시삭제할경우 같은 인덱스의 다른 세션이 삭제 될 수 있
+
+	//오규리 :: 질문 4) 원장님이 말씀하신 Delete Flag는 지금 IO카운트 바깥에 있고, PQCS여부로 체크한다고 하였다.
+				//원래의 DeleteFlag가 켜지는 조건은 무엇이었는가? - 원장님이 말한 delete 플래그와 내 코드상의 disconnect 플래그, release플래그는 다른존재임
+
+	//오규리 :: 질문 5) 원래의 Delete Flag가 켜지는 조건 - 지울때, (IOcount = 0)
+	//오규리 :: 질문 6) 현재 IO취소플래그가 켜지는 조건? - 컨텐츠쪽 코드에서 임의의 이유로 disconnectReq 할때, 또는 네트워크 코드에서도 가
+	//오규리 :: 질문 7) 그러면 IOcount가 0이어서 플래그가 켜진게 아니고, 임의로 호출하는 타이밍에 켜진다?
+				//이게 오작동 일으키지 않나요..??? 
+
+	// 일단 제 스탠스 
+	//		1. 최소한의 성능을 만족하자 : 5000개 넣었을때 1만 job TPS
+	//					=> 컨텐츠 코드를 개판으로 짯거나, 네트워크 코드를 개판으로 짜서 '실제 경합' 으로 인해 발생할 문제를 재현하지 못할정도로 느린 코드라면
+	//					=> 애초 발생 가능한 에러지만 발생하지 않을 수 있음, (코드가 느려서)
+	//		2. 최소한의 안정성을 만족하자 : 3일 7일간 죽지 않는 서버 구현
+	//					=> 당연한것
+	//		3. 버그수정 (결함 수정)
+	//		4. 버그수정 (에러 수정)
+
+
 	//writeMessageBuffer("disconnect %d", info);
 	//LOG(logLevel::Info, LO_TXT, "123");
 

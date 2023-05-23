@@ -153,7 +153,7 @@ public:
 //		ID	(0~7) 8/8			|	socket (8~15) 8/8			| port	| sendF |  IOcount		| -이후 락프리 들어갈곳, 현재 sendBuffer																											|	
 //	send overlapped	(0 ~ 31) 32/8																								|	recv overlapped (32 ~  63) 32/8
 //	sended buffer	(0 ~ 31) 32/8																								|	recv buffer (32 ~  63) 32/8
-// sFlag|
+// 
 //
 //
 //

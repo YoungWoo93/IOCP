@@ -139,7 +139,7 @@ bool session::sendIO()
 	//size_t packetCount = min(sendBufferSize / sizeof(serializer*), 100);
 	size_t packetCount = sendBufferSize;
 	size_t WSAbufferCount = 0;
-	WSABUF buffer[100];
+	WSABUF buffer[100]; 
 	memset(buffer, 0, sizeof(WSABUF) * packetCount);
 
 	for (WSAbufferCount = 0; WSAbufferCount < packetCount; WSAbufferCount++)
@@ -151,6 +151,7 @@ bool session::sendIO()
 		buffer[WSAbufferCount].buf = temp->getHeadPtr();
 		buffer[WSAbufferCount].len = (ULONG)temp->size();
 		sendedBuffer.push((char*)&temp, sizeof(serializer*));
+		//오규리 :: WSABUF 사용 추천! 좀 성능이 쥐어짜고싶으면 추천...
 	}
 
 	DWORD temp1 = 0;
@@ -279,6 +280,7 @@ bool session::recvIO()
 			
 			return false;
 		}
+		//오규리 :: IO Cancel 여부를 확인해보자????
 	}
 
 	return true;
@@ -339,6 +341,9 @@ bool session::recvedPacket(packet& p)
 UINT32 session::disconnectRegist()
 {
 	return InterlockedOr((LONG*) &IOcount, 0x80000000);
+	// releaseFlag  =  이녀석 지워지는중임
+	// disconnectFlag = IO 캔슬 요청된 플래그
+	// ioCount = 아이오 카운트
 }
 
 /// <summary>
