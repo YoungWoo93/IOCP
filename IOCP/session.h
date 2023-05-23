@@ -7,11 +7,8 @@
 #include <stack>
 #include <unordered_map>
 
-#include "RingBuffer/RingBuffer/RingBuffer.h"
-#include "MemoryPool/MemoryPool/MemoryPool.h"
-#include "MessageLogger/MessageLogger/MessageLogger.h"
-
-#include "customDataStructure/customDataStructure/queue_LockFree_TLS.h"
+#include "ringBuffer.h"
+#include "LockFreeQueue.h"
 
 #include "errorDefine.h"
 #include "packet.h"
@@ -135,10 +132,8 @@ public:
 	UINT16 port;						//2
 	short sendFlag;						//2		- interlock
 	UINT32 IOcount;						//4		- interlock
-	//ringBuffer sendBuffer;				//32
-	queue_LockFreeTLS<serializer*> sendBuffer; //112
+	LockFreeQueue<serializer*> sendBuffer; //112
 
-	//alignas(64) 
 	OVERLAPPED sendOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
 	OVERLAPPED recvOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
 
