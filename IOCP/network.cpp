@@ -12,13 +12,11 @@
 
 #ifdef _DEBUG
 #pragma comment(lib, "MemoryPoolD")
-#pragma comment(lib, "SerializerD")
 #pragma comment(lib, "MessageLoggerD")
 #pragma comment(lib, "crashDumpD")
 
 #else
 #pragma comment(lib, "MemoryPool")
-#pragma comment(lib, "Serializer")
 #pragma comment(lib, "MessageLogger")
 #pragma comment(lib, "crashDump")
 
@@ -32,7 +30,6 @@
 #include <unordered_map>
 
 #include "MemoryPool/MemoryPool/MemoryPool.h"
-#include "Serializer/Serializer/Serializer.h"
 #include "MessageLogger/MessageLogger/MessageLogger.h"
 #include "crashDump/crashDump/crashDump.h"
 

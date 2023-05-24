@@ -18,7 +18,6 @@
 #include <map>
 
 #include "MemoryPool/MemoryPool/MemoryPool.h"
-#include "Serializer/Serializer/Serializer.h"
 
 #include "errorDefine.h"
 #include "packet.h"

@@ -2,20 +2,18 @@
 
 #ifdef _DEBUG
 #pragma comment(lib, "MemoryPoolD")
-#pragma comment(lib, "SerializerD")
 #pragma comment(lib, "MessageLoggerD")
 
 #else
 #pragma comment(lib, "MemoryPool")
-#pragma comment(lib, "Serializer")
 #pragma comment(lib, "MessageLogger")
 
 #endif
 
+#include "serializer.h"
 
+#include "Serializer/Serializer/BaseSerializer.h"
 #include "MemoryPool/MemoryPool/MemoryPool.h"
-#include "Serializer/Serializer/Serializer.h"
-#include "Serializer/Serializer/PacketSerializer.h"
 #include "MessageLogger/MessageLogger/MessageLogger.h"
 
 extern ObjectPool<serializer> serializerPool;

@@ -3,14 +3,12 @@
 #ifdef _DEBUG
 #pragma comment(lib, "RingBufferD")
 #pragma comment(lib, "MemoryPoolD")
-#pragma comment(lib, "SerializerD")
 #pragma comment(lib, "MessageLoggerD")
 #pragma comment(lib, "crashDumpD")
 
 #else
 #pragma comment(lib, "RingBuffer")
 #pragma comment(lib, "MemoryPool")
-#pragma comment(lib, "Serializer")
 #pragma comment(lib, "MessageLogger")
 #pragma comment(lib, "crashDump")
 
@@ -26,7 +24,6 @@
 //
 //#include "RingBuffer/RingBuffer/RingBuffer.h"
 //#include "MemoryPool/MemoryPool/MemoryPool.h"
-#include "Serializer/Serializer/Serializer.h"
 //#include "MessageLogger/MessageLogger/MessageLogger.h"
 //#include "crashDump/crashDump/crashDump.h"
 //
@@ -145,8 +142,8 @@ bool session::sendIO()
 	for (WSAbufferCount = 0; WSAbufferCount < packetCount; WSAbufferCount++)
 	{
 		serializer* temp = 0;
-		//sendBuffer.pop((char*)&temp, sizeof(serializer*));
-		sendBuffer.pop(temp);
+		////1sendBuffer.pop((char*)&temp, sizeof(serializer*));
+		////1sendBuffer.pop(temp);
 
 		buffer[WSAbufferCount].buf = temp->getHeadPtr();
 		buffer[WSAbufferCount].len = (ULONG)temp->size();
@@ -227,7 +224,7 @@ int session::sended(DWORD& transfer)
 bool session::collectSendPacket(packet& p)
 {
 	p.buffer->incReferenceCounter();
-	sendBuffer.push(p.buffer); // 이후 sendBuffer의 크기를 제한할 일이 생긴다면 (꽉차서 짤라내기 등) 이곳에서 조건탈것
+	////1sendBuffer.push(p.buffer); // 이후 sendBuffer의 크기를 제한할 일이 생긴다면 (꽉차서 짤라내기 등) 이곳에서 조건탈것
 	return true;
 
 	//if (sendBuffer.freeSize() >= sizeof(serializer*))
@@ -387,11 +384,11 @@ void session::bufferClear()
 {
 	serializer* packetBuffer;
 
-	while (sendBuffer.pop(packetBuffer) != -1)
-	{
-		if (packetBuffer->decReferenceCounter() == 0)
-			serializerFree(packetBuffer);
-	}
+	////1while (sendBuffer.pop(packetBuffer) != -1)
+	////1{
+	////1	if (packetBuffer->decReferenceCounter() == 0)
+	////1		serializerFree(packetBuffer);
+	////1}
 	//while (!sendBuffer.empty())
 	//{
 	//	sendBuffer.pop((char*)&packetBuffer, sizeof(serializer*));

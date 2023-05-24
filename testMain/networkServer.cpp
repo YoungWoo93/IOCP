@@ -1,13 +1,11 @@
 #ifdef _DEBUG
 #pragma comment(lib, "MemoryPoolD")
-#pragma comment(lib, "SerializerD")
 #pragma comment(lib, "MessageLoggerD")
 #pragma comment(lib, "crashDumpD")
 #pragma comment(lib, "IOCPD")
 
 #else
 #pragma comment(lib, "MemoryPool")
-#pragma comment(lib, "Serializer")
 #pragma comment(lib, "MessageLogger")
 #pragma comment(lib, "crashDump")
 #pragma comment(lib, "IOCP")
