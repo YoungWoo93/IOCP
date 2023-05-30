@@ -30,7 +30,10 @@
 #include <unordered_map>
 
 #include "MemoryPool/MemoryPool/MemoryPool.h"
-#include "MessageLogger/MessageLogger/MessageLogger.h"
+#include "monitoringTools/monitoringTools/messageLogger.h"
+#include "monitoringTools/monitoringTools/performanceProfiler.h"
+#include "monitoringTools/monitoringTools/resourceMonitor.h"
+#pragma comment(lib, "monitoringTools\\x64\\Release\\monitoringTools")
 #include "crashDump/crashDump/crashDump.h"
 
 #include "errorDefine.h"
@@ -41,7 +44,7 @@
 
 
 
-Network::Network() : sessionPool(3000) {
+Network::Network() {
 
 };
 
@@ -71,7 +74,6 @@ Network::~Network()
 		////
 	}
 
-	delete[] acceptTPSArr;
 	delete[] recvMessageTPSArr;
 	delete[] sendMessageTPSArr;
 
@@ -96,16 +98,19 @@ bool Network::start(const USHORT port, const UINT16 maxSessionSize,
 		return false;
 	}
 
-	linger l = { 0, 0 };
+	//linger l = { 0, 0 };
+	linger l;
+	l.l_linger = 0;
+	l.l_onoff = 1;
 	if (setsockopt(listen_socket, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l)) != 0)
 		LOG(logLevel::Error, LO_TXT, "Error in set Linger " + to_string(listen_socket) + " socket, error : " + to_string(GetLastError()));
 
-	int optVal = 0;
-	//setsockopt(client_sock, SOL_SOCKET, SO_SNDBUF, (char*)&optVal, sizeof(optVal));
+	//int optVal = 0;
+	//setsockopt(listen_socket, SOL_SOCKET, SO_SNDBUF, (char*)&optVal, sizeof(optVal));
 
-	int nagleOpt = TRUE;
-	if (setsockopt(listen_socket, IPPROTO_TCP, TCP_NODELAY, (char*)&nagleOpt, sizeof(nagleOpt)) != 0)
-		LOG(logLevel::Error, LO_TXT, "Error in set Nodelay" + to_string(listen_socket) + " socket, error : " + to_string(GetLastError()));
+	//int nagleOpt = TRUE;
+	//if (setsockopt(listen_socket, IPPROTO_TCP, TCP_NODELAY, (char*)&nagleOpt, sizeof(nagleOpt)) != 0)
+		//LOG(logLevel::Error, LO_TXT, "Error in set Nodelay" + to_string(listen_socket) + " socket, error : " + to_string(GetLastError()));
 
 	SOCKADDR_IN serverAddr;
 	memset(&serverAddr, 0, sizeof(serverAddr));
@@ -141,9 +146,12 @@ bool Network::start(const USHORT port, const UINT16 maxSessionSize,
 		for (int i = maxSession - 1; i >= 0; i--)
 			indexStack.push(i);
 
-		sessionArray = new session * [maxSession];
-		memset(sessionArray, 0, sizeof(session*) * maxSession);
-		acceptTPSArr = new unsigned int[1];
+		// 성능 개선때 캐시라인 맞추기 (aling) 하는것 고려하기
+		sessionArray = new session[maxSession];
+		for (int i = 0; i < maxSession; i++)
+			sessionArray[i].core = this;
+
+
 		recvMessageTPSArr = new unsigned int[workerThreadCount];
 		sendMessageTPSArr = new unsigned int[workerThreadCount];
 
@@ -187,6 +195,7 @@ bool Network::start(const USHORT port, const UINT16 maxSessionSize,
 
 void Network::stop() {
 	isRun = false;
+	Sleep(5000);
 	if (listen_socket != INVALID_SOCKET)
 		closesocket(listen_socket);
 
@@ -205,43 +214,51 @@ void Network::stop() {
 DWORD WINAPI Network::networkThread(LPVOID arg)
 {
 	Network* core = ((Network*)arg);
-
+	unsigned int pastTick = GetTickCount();
+	Sleep(1000);
 	while (core->isRun)
 	{
-		Sleep(2000);
-
+		
 		unsigned int temp1 = 0;
 		unsigned int temp2 = 0;
+		unsigned int temp3 = 0;
 		for (int i = 0; i < core->workerThreadCount; i++) {
 			temp1 += core->sendMessageTPSArr[i];
 			core->sendMessageTPSArr[i] = 0;
 			temp2 += core->recvMessageTPSArr[i];
 			core->recvMessageTPSArr[i] = 0;
 		}
-		core->sendMessageTPS = temp1 / core->workerThreadCount;
-		core->recvMessageTPS = temp2 / core->workerThreadCount;
-		core->acceptTPS = core->acceptTPSArr[0];
-		core->acceptTPSArr[0] = 0;
+		unsigned int nowTick = GetTickCount();
+
+		core->sendMessageTPS = temp1 * 1000 / (nowTick - pastTick);
+		core->recvMessageTPS = temp2 * 1000 / (nowTick - pastTick);
+		core->acceptTPS = core->acceptTPSArr * 1000 / (nowTick - pastTick);
+		core->acceptTPSArr = 0;
+
+		pastTick = nowTick;
+		Sleep(1000);
 	}
 
 	return 0;
 }
 
 DWORD WINAPI Network::acceptThread(LPVOID arg) {
+	monitoringCurrentThread("acceptThread");
+
 	Network* core = ((Network*)arg);
 
 	while (core->isRun)
 	{
 		SOCKET client_sock = accept(core->listen_socket, NULL, NULL);
-		core->acceptTPSArr[0]++;
-
-		if (client_sock == INVALID_SOCKET)
+		core->acceptTPSArr++;
+		core->acceptTotal++;
+		if (client_sock == INVALID_SOCKET) 
 			continue;
 		//LOG(logLevel::Info, LO_TXT, "new connect " + to_string(client_sock) + " socket");
 
 		SOCKADDR_IN clientAddr;
 		int addrlen = sizeof(clientAddr);
-		if(getpeername(client_sock, (SOCKADDR*)&clientAddr, &addrlen) != 0)
+		if (getpeername(client_sock, (SOCKADDR*)&clientAddr, &addrlen) != 0)
 			LOG(logLevel::Error, LO_TXT, "Error in getpeername " + to_string(client_sock) + " socket, error : " + to_string(GetLastError()));
 
 		if (!core->OnConnectionRequest(clientAddr.sin_addr.S_un.S_addr, clientAddr.sin_port)) {
@@ -249,19 +266,6 @@ DWORD WINAPI Network::acceptThread(LPVOID arg) {
 			closesocket(client_sock);
 			continue;
 		}
-
-		//{
-		//	linger l = { 0, 0 };
-		//	if (setsockopt(client_sock, SOL_SOCKET, SO_LINGER, (char*)&l, sizeof(l)) != 0)
-		//		LOG(logLevel::Error, LO_TXT, "Error in set Linger " + to_string(client_sock) + " socket, error : " + to_string(GetLastError()));
-		//
-		//	int optVal = 0;
-		//	//setsockopt(client_sock, SOL_SOCKET, SO_SNDBUF, (char*)&optVal, sizeof(optVal));
-		//
-		//	int nagleOpt = TRUE;
-		//	if (setsockopt(client_sock, IPPROTO_TCP, TCP_NODELAY, (char*)&nagleOpt, sizeof(nagleOpt)) != 0)
-		//		LOG(logLevel::Error, LO_TXT, "Error in set Nodelay" + to_string(client_sock) + " socket, error : " + to_string(GetLastError()));
-		//}
 
 		USHORT index = -1;
 
@@ -279,32 +283,25 @@ DWORD WINAPI Network::acceptThread(LPVOID arg) {
 		}
 		ReleaseSRWLockExclusive(&(core->indexStackLock));
 
-		
-		//AcquireSRWLockExclusive(&(core->sessionPoolLock));
-		session* sessionPtr = core->sessionPool.Alloc();
-		//ReleaseSRWLockExclusive(&(core->sessionPoolLock));
-		sessionPtr->bufferClear();
 		// 세션 ID 부여 및 초기화
+		session* s;
 		{
-			core->sessionArray[index] = sessionPtr;
-
+			s = &(core->sessionArray[index]);
+			
 			UINT64 sessionID = MAKE_SESSION_ID(core->sessionCount++, index);
-			sessionPtr->init(sessionID, client_sock, clientAddr.sin_port);
+			s->init(sessionID, client_sock, clientAddr.sin_port);
+			//LOGOUT_EX(logLevel::Info, LO_TXT, "lib") << "new connect " << client_sock << " socket at index " << index << LOGEND;
 
-
-			if(CreateIoCompletionPort((HANDLE)(sessionPtr->getSocket()), core->IOCP, (ULONG_PTR)sessionPtr, NULL) == NULL)
-				LOG(logLevel::Error, LO_TXT, "Error in CreateIoCompletionPort " + to_string(sessionPtr->getSocket()) + " socket, error : " + to_string(GetLastError()));
+			if (CreateIoCompletionPort((HANDLE)(s->getSocket()), core->IOCP, (ULONG_PTR)s, NULL) == NULL)
+				LOG(logLevel::Error, LO_TXT, "Error in CreateIoCompletionPort " + to_string(s->getSocket()) + " socket, error : " + to_string(GetLastError()));
 
 			core->OnNewConnect(sessionID);
 		}
 
+		s->recvIO();
 
-
-		if (!sessionPtr->recvIO())
-		{
-			if (sessionPtr->decrementIO() == 0)
-				core->deleteSession(sessionPtr);
-		}
+		if (s->decrementIO() == 0)
+			core->deleteSession(s);
 	}
 
 	return 0;
@@ -312,100 +309,94 @@ DWORD WINAPI Network::acceptThread(LPVOID arg) {
 
 UINT64 temp1Counter = 0;
 
+
 DWORD WINAPI Network::workerThread(LPVOID arg)
 {
+	monitoringCurrentThread("workerThread");
 	Network* core = ((Network*)arg);
 	SHORT threadIndex = core->threadIndexMap[GetCurrentThread()];
 
-	DWORD transfer;
-	session* sessionPtr;
-	OVERLAPPED* overlap;
-
 	while (core->isRun)
 	{
+		DWORD transfer = 0;
+		session* sessionPtr = nullptr;
+		OVERLAPPED* overlap = nullptr;
 
 		bool GQCSresult = GetQueuedCompletionStatus(core->IOCP, &transfer, (PULONG_PTR)&sessionPtr, &overlap, INFINITE);
+		
 		if (sessionPtr == nullptr) //PQCS 에 의한 종료
 			break;
-
-		if (GQCSresult == false || transfer == 0)
+		else if (GQCSresult == false)
 		{
-			if (sessionPtr->sendOverlappedCheck(overlap))	//send 완료 블록
-			{
-				LOG(logLevel::Info, LO_TXT, "disconnect send  session " + to_string(sessionPtr->ID));
-			}
-			else if (sessionPtr->recvOverlappedCheck(overlap))	//recv 완료 블록
-			{
-				LOG(logLevel::Info, LO_TXT, "disconnect recv  session " + to_string(sessionPtr->ID));
-			}
 			if (sessionPtr->decrementIO() == 0)
 				core->deleteSession(sessionPtr);
 
 			continue;
 		}
 
-		if (sessionPtr->sendOverlappedCheck(overlap))	//send 완료 블록
+		if (transfer == 0)
+		{
+			reqEvents temp;
+			if ((temp = core->requestCheck(overlap)) != reqEvents::notDefine)
+			{
+				if (temp == reqEvents::sendReq)
+				{
+					serializer* _packet = (serializer*)((unsigned long long int)overlap & (~reqFilter));
+
+					if (sessionPtr->collectSendPacket(_packet))
+					{
+						sessionPtr->sendIO();
+					}
+					else 
+					{
+						if (_packet->decReferenceCounter() == 0)
+							serializerFree(_packet);
+					}
+				}
+			}
+		}
+		else if (sessionPtr->sendOverlappedCheck(overlap))	//send 완료 블록
 		{
 			core->OnSend(sessionPtr->ID, transfer);
 			int tp = sessionPtr->sended(transfer);
 			if (tp != -1)
 				core->sendMessageTPSArr[threadIndex] += tp;
 			else
-			{
-				if (sessionPtr->decrementIO() == 0)
-					core->deleteSession(sessionPtr);
 				continue;
-				//
-				// sended -1 예외처리
-				//
-			}
+			
+			sessionPtr->sendFlag = 0;
 
-			InterlockedExchange16(&sessionPtr->sendFlag, 0);
-
-			if (sessionPtr->sendBuffer.size() > 0) // 잠재적 에러 가능 (size는 1 이상인데 실제 들어있는것은 없는 경우
+			if (sessionPtr->sendBuffer.size() > 0)
 			{
-				if (!sessionPtr->sendIO()) {
-					if (sessionPtr->decrementIO() == 0)
-						core->deleteSession(sessionPtr);
-				}
+				sessionPtr->sendIO();
 			}
+
 		}
 		else if (sessionPtr->recvOverlappedCheck(overlap))	//recv 완료 블록
 		{
 			if (!(sessionPtr->recved(transfer)))
-			{
-				// transfer 크기가 안맞거나, 버퍼 오버플로우 등 정상적으로 수신 처리 불가능할때
-				if (sessionPtr->decrementIO() == 0) {
-					core->deleteSession(sessionPtr);
-					continue;
-				}
-			}
+				continue; 
 
 			while (true) {
-				packet p;
+				serializer* p = serializerAlloc();
+				int temp = p->incReferenceCounter();
+				p->clean();
+				p->moveRear(5);
+				p->moveFront(5);
+
 				if (!sessionPtr->recvedPacket(p))
+				{
+					if (p->decReferenceCounter() == 0)
+						serializerFree(p);
+
 					break;
+				}
 
 				core->recvMessageTPSArr[threadIndex]++;
 				core->OnRecv(sessionPtr->ID, p);
 			}
 
-
-			//sessionPtr->incrementIO();
-			//if (!sessionPtr->recvIO())
-			//{
-			//	if (sessionPtr->decrementIO() == 0) {
-			//		core->deleteSession(sessionPtr);
-			//	}
-			//}
-
-			if (sessionPtr->recvIO())
-				sessionPtr->incrementIO();
-		}
-		else
-		{
-			InterlockedIncrement(&temp1Counter);
-			continue;
+			sessionPtr->recvIO();
 		}
 
 		if (sessionPtr->decrementIO() == 0)
@@ -414,58 +405,48 @@ DWORD WINAPI Network::workerThread(LPVOID arg)
 	return 0;
 }
 
+Network::reqEvents Network::requestCheck(void* _overlappedPtr)
+{
+	unsigned long long int reqStamp = reqFilter & (unsigned long long int)_overlappedPtr;
+
+	if (reqStamp == (unsigned long long int)reqEvents::sendReq)
+		return reqEvents::sendReq;
+	if (reqStamp == (unsigned long long int)reqEvents::disconnectReq)
+		return reqEvents::disconnectReq;
+
+	return reqEvents::notDefine;
+}
+
 void Network::deleteSession(session* sessionPtr)
 {
-	//오규리 :: 질문 1) IO Count 내부에 있는 플래그는 누구? - IO를 취소하라는 플래
-	//오규리 :: 질문 2) Disconnect에 대한 플래그는 언제 ON/OFF? - PQCS 안하면 disconnect에 대한 플래그 없
-	//오규리 :: 질문 3) 원장님이 IO Count랑 동시에 체크하라는 플래그는 Disconnect(Delete라 표현하심) 플래그였다.
-				//왜 동시에 체크해야 하는가? - 동시삭제할경우 같은 인덱스의 다른 세션이 삭제 될 수 있
+	//	1. IOCount 이용 그대로 하다가
+	//	2. IO 1->0 으로 만든 녀석이 deleteFlag 심고
+	//	3. 그 이후에도 변화가 있더라도
+	//	4. 실제 deleteSession 에서는 del flag가 있으면서 0인 순간에만 회수하고 삭제시도
 
-	//오규리 :: 질문 4) 원장님이 말씀하신 Delete Flag는 지금 IO카운트 바깥에 있고, PQCS여부로 체크한다고 하였다.
-				//원래의 DeleteFlag가 켜지는 조건은 무엇이었는가? - 원장님이 말한 delete 플래그와 내 코드상의 disconnect 플래그, release플래그는 다른존재임
+	if (InterlockedCompareExchange(&(sessionPtr->IOcount), 0x80000000, 0x00000000) != 0x00000000)
+		return;
 
-	//오규리 :: 질문 5) 원래의 Delete Flag가 켜지는 조건 - 지울때, (IOcount = 0)
-	//오규리 :: 질문 6) 현재 IO취소플래그가 켜지는 조건? - 컨텐츠쪽 코드에서 임의의 이유로 disconnectReq 할때, 또는 네트워크 코드에서도 가
-	//오규리 :: 질문 7) 그러면 IOcount가 0이어서 플래그가 켜진게 아니고, 임의로 호출하는 타이밍에 켜진다?
-				//이게 오작동 일으키지 않나요..??? 
-
-	// 일단 제 스탠스 
-	//		1. 최소한의 성능을 만족하자 : 5000개 넣었을때 1만 job TPS
-	//					=> 컨텐츠 코드를 개판으로 짯거나, 네트워크 코드를 개판으로 짜서 '실제 경합' 으로 인해 발생할 문제를 재현하지 못할정도로 느린 코드라면
-	//					=> 애초 발생 가능한 에러지만 발생하지 않을 수 있음, (코드가 느려서)
-	//		2. 최소한의 안정성을 만족하자 : 3일 7일간 죽지 않는 서버 구현
-	//					=> 당연한것
-	//		3. 버그수정 (결함 수정)
-	//		4. 버그수정 (에러 수정)
-
-
-	//writeMessageBuffer("disconnect %d", info);
-	//LOG(logLevel::Info, LO_TXT, "123");
-
-	USHORT index = (USHORT)sessionPtr->ID;
+	UINT64 targetID = sessionPtr->ID;
+	USHORT index = (USHORT)sessionPtr->ID;	
 	int sock = sessionPtr->socket;
-	if(closesocket(sessionPtr->socket) != 0)
-		LOG(logLevel::Info, LO_TXT, "close socket error " + to_string(sock) + " socket, error " + to_string(GetLastError()));
-	//LOG(logLevel::Info, LO_TXT, "close " + to_string(sock) + " socket");
-	sessionPtr->disconnectUnregist();
-	//sessionArray[index] = nullptr;
+
+	if (closesocket(sessionPtr->socket) != 0)
+	{
+		LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "close socket error " << sock << " socket, error " << GetLastError() << LOGEND;
+	}
+	else
+	{
+		//LOGOUT_EX(logLevel::Info, LO_TXT, "lib") << "close socket " << sock << " socket" << LOGEND;
+	}
 
 	sessionPtr->bufferClear();
-	//AcquireSRWLockExclusive(&sessionPoolLock);
-	sessionPool.Free(sessionPtr);
-	//ReleaseSRWLockExclusive(&sessionPoolLock);
 
 	AcquireSRWLockExclusive(&indexStackLock);
 	indexStack.push(index);
 	ReleaseSRWLockExclusive(&indexStackLock);
 
-	OnDisconnect(sessionPtr->ID);
-	//LOG(logLevel::Info, LO_TXT, "release session " + to_string(sock) + " socket, " + to_string(index) + " index");
-}
-
-void Network::deleteSession(sessionPtr* sessionPtr)
-{
-	deleteSession(sessionPtr->ptr);
+	OnDisconnect(targetID);
 }
 
 size_t Network::getSessionCount()
@@ -482,13 +463,16 @@ std::pair<size_t, size_t> Network::getSessionPoolMemory()
 	pair<size_t, size_t> ret;
 
 	//AcquireSRWLockExclusive(&sessionPoolLock);
-	ret.first = sessionPool.GetCapacityCount();
-	ret.second = sessionPool.GetUseCount();
+	ret.first = 0;
+	ret.second = 0;
 	//ReleaseSRWLockExclusive(&sessionPoolLock);
 
 	return ret;
 }
-
+unsigned int Network::getAcceptTotal()
+{
+	return acceptTotal;
+}
 unsigned int Network::getAcceptTPS()
 {
 	return acceptTPS;
@@ -502,88 +486,104 @@ unsigned int Network::getSendMessageTPS()
 	return sendMessageTPS;
 }
 
-sessionPtr Network::findSession(UINT64 sessionID)
+
+
+session* Network::findSession(UINT64 sessionID)
 {
-	sessionPtr ret(sessionArray[(USHORT)sessionID], this);
+	session* _session = &sessionArray[(USHORT)sessionID];
 
-	if (sessionArray[(USHORT)sessionID]->ID != sessionID)
-		return sessionPtr(nullptr, this);
+	int temp = _session->incrementIO();
+	if ((temp & 0x80000000) != 0) {	//이미 delete 된 세션
+		if (_session->decrementIO() == 0)
+			deleteSession(_session);
 
-	return ret;
+		return nullptr;
+	}
+
+	if (_session->ID != sessionID){ // 재사용된 세션
+		if (_session->decrementIO() == 0)
+			deleteSession(_session);
+
+		return nullptr;
+	}
+
+	return _session;
 }
+
 
 ////////////////////////////////////////////////////////////////////////////////////
 // 이하 컨텐츠단에서 먼저 호출 가능한 함수들
 ////////////////////////////////////////////////////////////////////////////////////
-bool Network::sendPacket(UINT64 sessionID, packet& _pakcet)
-{
-	sessionPtr s = findSession(sessionID);
 
-	if (!s.valid())
-		return false;
-
-	/*/
-	{
-		if (s.ptr->sendBuffer.freeSize() >= sizeof(serializer*))
-		{
-			_pakcet.buffer->incReferenceCounter();
-			auto ret = s.ptr->sendBuffer.push((char*)&(_pakcet.buffer), sizeof(serializer*));
-
-
-			if (!s.ptr->sendIO())
-			{
-				if (s.ptr->decrementIO() == 0) {
-					deleteSession(s.ptr);
-					return false;
-				}
-			}
-		}
-	}
-	/*/
-	if (s.ptr->collectSendPacket(_pakcet))
-	{
-		if (!(s.ptr->sendIO()))
-		{
-			if (s.ptr->decrementIO() == 0) {
-				deleteSession(s.ptr);
-				return false;
-			}
-		}
-	}
-	//
-	return true;
-}
 
 void Network::disconnectReq(UINT64 sessionID)
 {
-	sessionPtr s = findSession(sessionID);
+	session* _sessionPtr = findSession(sessionID);
 
-	if (s.ptr == nullptr)
+	if (_sessionPtr == nullptr)
 		return;
 
-	s.ptr->disconnectRegist();
-	if (CancelIoEx((HANDLE)s.ptr->socket, &(s.ptr->recvOverlapped)) == 0)
-	{
-		int errorCode = GetLastError();
-		if (errorCode != ERROR_NOT_FOUND){
-			LOG(logLevel::Error, LO_TXT, "disconnectReq recv CancelIoEx error" + to_string(errorCode));
-		}
-	}
-	else{
-		if (s.decrementIO() == 0)
-			deleteSession(s.ptr);
-	}
+	_sessionPtr->cancelIORegist();
 
-	if (CancelIoEx((HANDLE)s.ptr->socket, &(s.ptr->sendOverlapped)) == 0)
+	if (CancelIoEx((HANDLE)_sessionPtr->socket, &(_sessionPtr->recvOverlapped)) == 0)
 	{
 		int errorCode = GetLastError();
 		if (errorCode != ERROR_NOT_FOUND) {
-			LOG(logLevel::Error, LO_TXT, "disconnectReq send CancelIoEx error" + to_string(errorCode));
+			LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "disconnectReq recv CancelIoEx error " << errorCode << " index :" << (USHORT)sessionID <<LOGEND;
 		}
 	}
-	else {
-		if (s.decrementIO() == 0)
-			deleteSession(s.ptr);
+
+	if (CancelIoEx((HANDLE)_sessionPtr->socket, &(_sessionPtr->sendOverlapped)) == 0)
+	{
+		int errorCode = GetLastError();
+		if (errorCode != ERROR_NOT_FOUND) {
+			LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "disconnectReq send CancelIoEx error " << errorCode << " index :" << (USHORT)sessionID << LOGEND;
+		}
 	}
 
+	if (_sessionPtr->decrementIO() == 0)
+		deleteSession(_sessionPtr);
+}
+
+void Network::disconnectReq(session* _sessionPtr)
+{
+	_sessionPtr->cancelIORegist();
+
+	if (CancelIoEx((HANDLE)_sessionPtr->socket, &(_sessionPtr->recvOverlapped)) == 0)
+	{
+		int errorCode = GetLastError();
+		if (errorCode != ERROR_NOT_FOUND) {
+			LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "disconnectReq recv CancelIoEx error " << errorCode << " index " << (USHORT)_sessionPtr->ID << LOGEND;
+		}
+	}
+
+	if (CancelIoEx((HANDLE)_sessionPtr->socket, &(_sessionPtr->sendOverlapped)) == 0)
+	{
+		int errorCode = GetLastError();
+		if (errorCode != ERROR_NOT_FOUND) {
+			LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "disconnectReq send CancelIoEx error " << errorCode << " index " << (USHORT)_sessionPtr->ID << LOGEND;
+		}
+	}
+}
+
+
+void Network::sendReq(UINT64 sessionID, serializer* _packet)
+{
+	session* _sessionPtr = findSession(sessionID);
+
+
+	if (_sessionPtr == nullptr)
+		return;
+
+
+	_packet->incReferenceCounter();
+	_sessionPtr->incrementIO();
+
+	//_sessionPtr.collectSendPacket(_packet);
+
+	auto reqValue = ((unsigned long long int)_packet | (unsigned long long int)reqEvents::sendReq);
+	PostQueuedCompletionStatus(IOCP, 0, (ULONG_PTR)_sessionPtr, (LPOVERLAPPED)reqValue);
+
+	if (_sessionPtr->decrementIO() == 0)
+		deleteSession(_sessionPtr);
 }

@@ -124,7 +124,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>E:\블로그\lib</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>E:\블로그\lib;E:\myProject;</AdditionalIncludeDirectories>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
     </ClCompile>
     <Link>
@@ -141,7 +141,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>E:\블로그\lib</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>E:\블로그\lib;E:\myProject;</AdditionalIncludeDirectories>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
       <Optimization>Disabled</Optimization>
     </ClCompile>
@@ -157,12 +157,17 @@
     <ClCompile Include="errorDefine.cpp" />
     <ClCompile Include="network.cpp" />
     <ClCompile Include="packet.cpp" />
+    <ClCompile Include="ringBuffer.cpp" />
     <ClCompile Include="session.cpp" />
+    <ClCompile Include="serializer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="errorDefine.h" />
     <ClInclude Include="network.h" />
     <ClInclude Include="packet.h" />
+    <ClInclude Include="ringBuffer.h" />
+    <ClInclude Include="LockFreeQueue.h" />
+    <ClInclude Include="serializer.h" />
     <ClInclude Include="session.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

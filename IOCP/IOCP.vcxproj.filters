@@ -39,6 +39,12 @@
     <ClCompile Include="errorDefine.cpp">
       <Filter>소스 파일\error</Filter>
     </ClCompile>
+    <ClCompile Include="ringBuffer.cpp">
+      <Filter>소스 파일\session</Filter>
+    </ClCompile>
+    <ClCompile Include="serializer.cpp">
+      <Filter>소스 파일\packet</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="packet.h">
@@ -52,6 +58,15 @@
     </ClInclude>
     <ClInclude Include="errorDefine.h">
       <Filter>소스 파일\error</Filter>
+    </ClInclude>
+    <ClInclude Include="ringBuffer.h">
+      <Filter>소스 파일\session</Filter>
+    </ClInclude>
+    <ClInclude Include="LockFreeQueue.h">
+      <Filter>소스 파일\session</Filter>
+    </ClInclude>
+    <ClInclude Include="serializer.h">
+      <Filter>소스 파일\packet</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

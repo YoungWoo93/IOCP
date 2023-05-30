@@ -3,7 +3,11 @@
 void serializer::clean()
 {
 	if (headPtr == bufferPtr)
+	{
+		headPtr = bufferPtr;
+		tailPtr = bufferPtr;
 		return;
+	}
 
 	memmove(bufferPtr, headPtr, tailPtr - headPtr);
 	tailPtr = bufferPtr + (tailPtr - headPtr);

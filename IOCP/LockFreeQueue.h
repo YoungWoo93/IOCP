@@ -1,8 +1,8 @@
 #pragma once
 
 #include <Windows.h>
+#include "packet.h"
 
-template <typename T>
 class LockFreeQueue
 {
 public:
@@ -16,7 +16,6 @@ public:
 	}
 	~LockFreeQueue()
 	{
-		T temp;
 		while (_head != 0) {
 			node* popNode = MAKE_NODEPTR(_head);
 			_head = popNode->key;
@@ -25,7 +24,7 @@ public:
 		}
 	}
 
-	bool push(T t)
+	bool push(serializer* t)
 	{
 		UINT64 pushCount = InterlockedIncrement(&pushs);
 		node* n = np.Alloc();
@@ -34,7 +33,6 @@ public:
 
 		UINT64 newKey = MAKE_KEY(n, pushCount);
 		
-
 		n->value = t;
 		n->key = NULL;
 
@@ -63,12 +61,17 @@ public:
 		return true;
 	}
 
-	bool pop(T& t)
+	/// <summary>
+	/// t는 현재 유효한 시리얼라이저의 포인터면 안된다.
+	/// 실제 할당받은 시리얼라이저의 포인터일경우 해당 시리얼라이저의 참조 카운터가 유실(누수) 된다.
+	/// </summary>
+	bool pop(serializer** t)
 	{
-		if (_size <= 0)
-			return false;
+		if (InterlockedDecrement(&_size) < 0) {
+			InterlockedIncrement(&_size);
 
-		InterlockedDecrement(&_size);
+			return false;
+		}
 
 		while (true)
 		{
@@ -90,14 +93,14 @@ public:
 			{
 				_head = key;
 				np.Free(MAKE_NODEPTR(head));
-				t = MAKE_NODEPTR(key)->value;
+				*t = MAKE_NODEPTR(key)->value;
 
 				break;
 			}
 
 		}
 
-		return 0;
+		return true;
 	}
 
 	long size() {
@@ -109,14 +112,14 @@ private:
 	{
 		node() : value(0), key(0), poolNext(0) {
 		}
-		node(T v) :value(v), key(0), poolNext(0) {
+		node(serializer* v) :value(v), key(0), poolNext(0) {
 		}
-		node(T v, UINT64 k) :value(v), key(k), poolNext(0) {
+		node(serializer* v, UINT64 k) :value(v), key(k), poolNext(0) {
 		}
 		~node() {
 		}
 
-		T value;
+		serializer* value;
 		UINT64 key;
 		UINT64 poolNext;
 	};
@@ -160,14 +163,14 @@ private:
 			useSize = 0;
 			pushCount = 0;
 
-			while (topKey != nullptr) {
+			while (topKey != 0) {
 				node* temp = MAKE_NODEPTR(topKey);
 				topKey = temp->poolNext;
 
 				temp->~node();
 				HeapFree(heap, 0, temp);
 
-				if (topKey == nullptr)
+				if (topKey == 0)
 					break;
 			}
 		}

@@ -21,7 +21,7 @@ class Network;
 
 
 
-
+#include <vector>
 
 class session {
 public:
@@ -39,7 +39,10 @@ public:
 	/// true : 정상동작 상태
 	/// false : 어떤 이유로든 정상 동작 불가능
 	/// </returns>
-	bool sendIO();
+	/// 
+	//[질문1] 연관
+	//bool sendIO();
+	void sendIO();
 
 	/// <summary>
 	/// send 완료 통지에서 호출, sendflag를 제거하고 sended 버퍼의 시리얼라이저를 반환함. 만약 sendBuffer에 값이 남아있다면 재차 send를 요청함 (sendFlag 변화 없이)
@@ -60,8 +63,8 @@ public:
 	/// true : 넣음
 	/// false : 넣을수 없음
 	/// </returns>
-	bool collectSendPacket(packet& p);
-
+	bool collectSendPacket(packet p);
+	bool collectSendPacket(serializer* p);
 
 	/// <summary>
 	/// 
@@ -70,7 +73,11 @@ public:
 	/// true : 정상동작 상태
 	/// false : 어떤 이유로든 정상 동작 불가능
 	/// </returns>
-	bool recvIO();
+	/// 
+	//[질문1] 연관
+	//bool recvIO();
+	void recvIO();
+
 
 	/// <summary>
 	/// recv 완료 통지에서 호출, recvBuffer를 밀고, 만약 에러처리를함
@@ -89,7 +96,7 @@ public:
 	/// true : 꺼낼게 있음
 	/// false : 꺼낼게 없음 
 	/// </returns>
-	bool recvedPacket(packet& p);
+	bool recvedPacket(serializer* p);
 
 	/// <summary>
 	/// 해당 세션이 모종의 이유로 서버측에서 먼저 끊기 요청된 경우, 해당 요청 등록
@@ -97,7 +104,7 @@ public:
 	/// <returns>
 	/// ioCount에 해당 플래그를 심은 뒤의 값
 	/// </returns>
-	UINT32 disconnectRegist();
+	UINT32 cancelIORegist();
 
 	/// <summary>
 	/// 해당 세션이 모종의 이유로 서버측에서 먼저 끊기 요청된 경우, 해당 요청수행 후 플래그 해제
@@ -105,7 +112,7 @@ public:
 	/// <returns>
 	/// ioCount에 해당 플래그를 해제한 뒤의 값
 	/// </returns>
-	UINT32 disconnectUnregist();
+	UINT32 cancelIOUnregist();
 
 	/// <summary>
 	/// 해당 세션이 모종의 이유로 서버측에서 먼저 끊기 요청된 상태인지 체크
@@ -114,7 +121,7 @@ public:
 	/// true : 끊기 요청상태임
 	/// false : 아님
 	/// </returns>
-	bool hasDisconnectRequest();
+	bool hasCancelIOFlag();
 
 	SOCKET getSocket();
 	UINT16 getPort();
@@ -128,11 +135,13 @@ public:
 	unsigned long long int ID;			//8		- 유저단에서 주로 사용
 
 public:
+	Network* core;
 	SOCKET socket;						//8
 	UINT16 port;						//2
 	short sendFlag;						//2		- interlock
 	UINT32 IOcount;						//4		- interlock
-	LockFreeQueue<serializer*> sendBuffer; //112
+	short cancelIOFlag;				//2
+	LockFreeQueue sendBuffer; //112
 
 	OVERLAPPED sendOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
 	OVERLAPPED recvOverlapped;			//32	- send-recv 완료통지, send-recv IO 에서 사용
@@ -140,6 +149,10 @@ public:
 	ringBuffer sendedBuffer;			//32
 	ringBuffer recvBuffer;				//32
 
+	
+	vector<unsigned short> logger;
+	SRWLOCK logLock;
+	UINT64 releaseFlag;
 };
 //	total 288
 
@@ -156,13 +169,76 @@ public:
 
 
 
-
+/*/
 class sessionPtr {
 	friend class Network;
 public:
-	~sessionPtr();
+	sessionPtr(session* _session, Network* _core) :ptr(_session), core(_core) {
+		int i = 0;
+		i++;
+	}
 
-	sessionPtr(const sessionPtr& s);
+	~sessionPtr() {
+		if (ptr == nullptr)
+			return;
+
+		if (ptr->decrementIO() == 0)
+			core->deleteSession(ptr);
+	}
+
+	sessionPtr(const sessionPtr& s) {
+		if (s.ptr != nullptr)
+			s.ptr->incrementIO();
+
+		ptr = s.ptr;
+		core = s.core;
+	}
+
+	sessionPtr(sessionPtr&& s) {
+		ptr = s.ptr;
+		core = s.core;
+
+		s.ptr = nullptr;
+	}
+
+	sessionPtr& operator=(sessionPtr&& s) {
+		core = s.core;
+
+		if (ptr == s.ptr)
+			return *this;
+
+		if (ptr != nullptr) {
+			if (ptr->decrementIO() == 0)
+				core->deleteSession(ptr);
+		}
+
+		ptr = s.ptr;
+		s.ptr = nullptr;
+
+		return *this;
+	}
+
+	sessionPtr& operator=(const sessionPtr& s) {
+		core = s.core;
+
+		if (ptr == s.ptr)
+			return *this;
+
+		if (ptr != nullptr) {
+			if (ptr->decrementIO() == 0)
+				core->deleteSession(ptr);
+		}
+		if (s.ptr != nullptr)
+			s.ptr->incrementIO();
+
+		ptr = s.ptr;
+
+		return *this;
+	}
+
+	
+
+
 
 	inline bool valid() {
 		return ptr != nullptr;
@@ -171,7 +247,8 @@ public:
 		return ptr->collectSendPacket(p);
 	}
 	inline bool sendIO() {
-		return ptr->sendIO();
+		ptr->sendIO();
+		return true;
 	}
 	inline UINT32 decrementIO() {
 		return ptr->decrementIO();
@@ -183,7 +260,10 @@ public:
 	UINT32 ID;
 
 private:
-	sessionPtr(session* _session, Network* _core);
+	
+	//sessionPtr(session* _session, Network* _core);
 	session* ptr;
 	Network* core;
 };
+
+/*/

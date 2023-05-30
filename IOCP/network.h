@@ -28,11 +28,13 @@
 #define	MAKE_SESSION_ID(sessionCount, index)	((unsigned long long)index | ((unsigned long long)sessionCount << 48) )
 
 
-class sessionPtr;
+//class sessionPtr;
 class session;
 
 class Network {
-	friend class sessionPtr;
+	//friend class sessionPtr;
+	friend class session;
+
 public:
 	Network();
 	~Network();
@@ -49,20 +51,30 @@ public:
 
 	size_t getSessionCount();
 	std::pair<size_t, size_t> getSessionPoolMemory();
+	
+	unsigned int getAcceptTotal();
 	unsigned int getAcceptTPS();
 	unsigned int getRecvMessageTPS();
 	unsigned int getSendMessageTPS();
 
 protected:
+	enum class reqEvents : unsigned long long{
+		notDefine = 0x0000000000000000,
+		sendReq = 0x4000000000000000,
+		disconnectReq = 0x8000000000000000,
+	};
+	reqEvents requestCheck(void* _overlappedPtr);
+
 	void deleteSession(session* sessionPtr);
-	void deleteSession(sessionPtr* sessionPtr);
 
 	virtual void OnNewConnect(UINT64 sessionID) = 0;
 	virtual void OnDisconnect(UINT64 sessionID) = 0;
 	virtual bool OnConnectionRequest(ULONG ip, USHORT port) = 0;
 
-	virtual void OnRecv(UINT64 sessionID, packet& _packet) = 0;	// < 패킷 수신 완료 후
+	virtual void OnRecv(UINT64 sessionID, serializer* _packet) = 0;	// < 패킷 수신 완료 후
 	virtual void OnSend(UINT64 sessionID, int sendsize) = 0;        // < 패킷 송신 완료 후
+
+	
 
 	/// <summary>
 	/// 이런방식으로 OnInfo, OnLogging (?) 등 가능할듯? 맞는지는 차후 판단필요
@@ -79,28 +91,28 @@ public:
 	////////////////////////////////////////////////////////////////////////////////////
 	// 이하 컨텐츠단에서 먼저 호출 가능한 함수들
 	////////////////////////////////////////////////////////////////////////////////////
-	bool sendPacket(UINT64 sessionID, packet& _pakcet);
+
 	void disconnectReq(UINT64 sessionID);
-	sessionPtr findSession(UINT64 sessionID);
+	void disconnectReq(session* _sessionPtr);
+	void sendReq(UINT64 sessionID, serializer* _packet);
+	session* findSession(UINT64 sessionID);
 
 protected:
 	UINT8 runningThreadCount;
 	UINT8 workerThreadCount;
-	unsigned int* acceptTPSArr;
+	unsigned int acceptTPSArr;
 	unsigned int* recvMessageTPSArr;
 	unsigned int* sendMessageTPSArr;
+	unsigned long long int acceptTotal;
 	unsigned int acceptTPS;
 	unsigned int recvMessageTPS; 
 	unsigned int sendMessageTPS;
-
-	SRWLOCK sessionPoolLock;
-	ObjectPool<session> sessionPool;
 public:
-	session** sessionArray;
-	//오규리 :: 만약에 성능 안나오면 구조체 배열로 가는것도 고려해보자!!!!!
-
+	session* sessionArray;
 
 protected:
+	static constexpr unsigned long long int reqFilter = 0xF000000000000000;
+
 	SRWLOCK indexStackLock;
 	std::stack<UINT16> indexStack;
 

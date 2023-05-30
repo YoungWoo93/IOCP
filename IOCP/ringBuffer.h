@@ -70,6 +70,10 @@ public:
 		return (buffer + bufferSize) - (buffer + ((h - buffer + 1) & _maxSize));
 	}
 
+	char* bufferPtr()
+	{
+		return buffer;
+	}
 
 
 	int MoveRear(const int _size);

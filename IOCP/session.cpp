@@ -3,13 +3,11 @@
 #ifdef _DEBUG
 #pragma comment(lib, "RingBufferD")
 #pragma comment(lib, "MemoryPoolD")
-#pragma comment(lib, "MessageLoggerD")
 #pragma comment(lib, "crashDumpD")
 
 #else
 #pragma comment(lib, "RingBuffer")
 #pragma comment(lib, "MemoryPool")
-#pragma comment(lib, "MessageLogger")
 #pragma comment(lib, "crashDump")
 
 #endif
@@ -30,47 +28,38 @@
 #include "errorDefine.h"
 #include "packet.h"
 #include "network.h"
+#include "monitoringTools/monitoringTools/messageLogger.h"
+#include "monitoringTools/monitoringTools/performanceProfiler.h"
+#include "monitoringTools/monitoringTools/resourceMonitor.h"
+#pragma comment(lib, "monitoringTools\\x64\\Release\\monitoringTools")
 
 
-sessionPtr::~sessionPtr() {
-	if (ptr == nullptr)
-		return;
-
-	// 이곳에서 참조카운트를 감소시키고
-	// 만약 참조카운트 (= ioCount) 0 인상황 (delete 되어야 하는데 이 구조체의 참조로 인하여 삭제되지 못한경우였음) 이면
-	// 여기서 deleteSession의 루틴을 타주어야 한다.
-	if (ptr->decrementIO() == 0)
-		core->deleteSession(ptr);
-
-}
-
-sessionPtr::sessionPtr(const sessionPtr& s) {
-	if (s.ptr != nullptr)
-		s.ptr->incrementIO();
-	ptr = s.ptr;
-	core = s.core;
-}
+/*/
 
 sessionPtr::sessionPtr(session* _session, Network* _core) : ptr(_session), core(_core) {
 	if (_session != nullptr)
 	{
-		if (_session->incrementIO() == 1)
-		{
-			_session->decrementIO();
-			ptr = nullptr;
+		if(_session->incrementIO() & 0x80000000 != 0){
+			if (_session->decrementIO() == 0) {
+				core->deleteSession(_session);
+			}
 		}
+
+		ptr = nullptr;
 	}
 }
-
+/*/
 session::session()
 	: ID(0), socket(0),
-	IOcount(1), sendFlag(0),
+	IOcount(0), sendFlag(0), 
 	sendBuffer(1000), sendedBuffer(4096), recvBuffer(4096) {
+
 }
 session::session(UINT64 id, SOCKET sock)
 	: ID(id), socket(sock),
-	IOcount(1), sendFlag(0),
+	IOcount(0), sendFlag(0),
 	sendBuffer(1000), sendedBuffer(4096), recvBuffer(4096) {
+
 }
 void session::init(UINT64 id, SOCKET sock, UINT16 _port)
 {
@@ -78,20 +67,22 @@ void session::init(UINT64 id, SOCKET sock, UINT16 _port)
 	socket = sock;
 	port = _port;
 
-	IOcount = 1;
+	incrementIO();
+	
 	sendFlag = 0;
-	bufferClear();
+	cancelIOFlag = 0;
 
-	memset(&sendOverlapped, 0, sizeof(OVERLAPPED));
-	memset(&recvOverlapped, 0, sizeof(OVERLAPPED));
+	InterlockedAnd((LONG*)&IOcount, (LONG)0x7fffffff);
 }
 
 UINT32 session::decrementIO() {
-	return InterlockedDecrement(&IOcount) & 0x7fffffff;
+	return InterlockedDecrement(&IOcount);
 }
+
 UINT32 session::incrementIO() {
-	return InterlockedIncrement(&IOcount) & 0x7fffffff;
+	return InterlockedIncrement(&IOcount);
 }
+
 
 /// <summary>
 /// 
@@ -101,18 +92,12 @@ UINT32 session::incrementIO() {
 /// false : 어떤 이유로든 정상 동작 불가능
 /// </returns>
 
-#include "Profiler/Profiler/Profiler.h"
-#ifdef _DEBUG
-#pragma comment(lib, "ProfilerD")
-
-#else
-#pragma comment(lib, "Profiler")
-#endif
 
 
+/*/
 bool session::sendIO()
 {
-	if (hasDisconnectRequest())
+	if (hasCancelIOFlag())
 		return true;
 
 	if (InterlockedExchange16(&sendFlag, 1) == 1)
@@ -124,36 +109,32 @@ bool session::sendIO()
 		return true;
 	}
 
-	InterlockedIncrement(&IOcount);
+	incrementIO();
 
-	//if ((sendBufferSize % sizeof(serializer*)) != 0) {// sendBuffer가 꼬인상태, 동작 비정상으로 종료되어야 함
-	//	LOG(logLevel::Error, LO_TXT, "sendBuffer 꼬임");
-	//	InterlockedExchange16(&sendFlag, 0);
-	//	return false;
-	//}
-
-
-	//size_t packetCount = min(sendBufferSize / sizeof(serializer*), 100);
 	size_t packetCount = sendBufferSize;
 	size_t WSAbufferCount = 0;
-	WSABUF buffer[100]; 
-	memset(buffer, 0, sizeof(WSABUF) * packetCount);
+	WSABUF buffer[100];
 
+	// size 체크를 굳이 할 필요가 없을 가능성이 높음
 	for (WSAbufferCount = 0; WSAbufferCount < packetCount; WSAbufferCount++)
 	{
 		serializer* temp = 0;
-		////1sendBuffer.pop((char*)&temp, sizeof(serializer*));
-		////1sendBuffer.pop(temp);
+		if (sendBuffer.pop(&temp) == false)
+		{
+			WSAbufferCount--;
+			sendBufferSize--;
+			continue;
+		}
 
 		buffer[WSAbufferCount].buf = temp->getHeadPtr();
 		buffer[WSAbufferCount].len = (ULONG)temp->size();
+
 		sendedBuffer.push((char*)&temp, sizeof(serializer*));
-		//오규리 :: WSABUF 사용 추천! 좀 성능이 쥐어짜고싶으면 추천...
 	}
 
 	DWORD temp1 = 0;
 
-
+	memset(&sendOverlapped, 0, sizeof(OVERLAPPED));
 	auto ret = WSASend(socket, buffer, (DWORD)WSAbufferCount, &temp1, 0, (LPWSAOVERLAPPED)&sendOverlapped, NULL);
 	
 
@@ -161,7 +142,71 @@ bool session::sendIO()
 		auto errorCode = GetLastError();
 		if (errorCode != WSA_IO_PENDING)
 		{
-			if (errorCode != 10054 && errorCode != 10053 && errorCode != 10038)
+			if (errorCode != 10054 && errorCode != 10053)
+			{
+				LOG(logLevel::Error, LO_TXT, "WSASend Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
+				InterlockedExchange16(&sendFlag, 0);
+				//int* temp = nullptr;
+				//*temp = 10;
+			}
+			return false;
+		}
+	}
+
+	if (hasCancelIOFlag()){
+		CancelIoEx((HANDLE)socket, &sendOverlapped);
+	}
+
+	return true;
+}
+/*/
+
+void session::sendIO()
+{
+	if (hasCancelIOFlag())
+		return;
+
+	if (InterlockedExchange16(&sendFlag, 1) == 1)
+		return;
+
+	size_t sendBufferSize = sendBuffer.size();	// 잠재적 에러 가능, size는 1 이상이지만 연결은 안된 상태일데
+	if (sendBufferSize == 0) { // 보낼게 없어서 종료, 동작은 정상상황
+		InterlockedExchange16(&sendFlag, 0);
+		return;
+	}
+
+	incrementIO();
+
+	size_t packetCount = sendBufferSize;
+	size_t WSAbufferCount = 0;
+	WSABUF buffer[100];
+
+	for (WSAbufferCount = 0; WSAbufferCount < packetCount; WSAbufferCount++)
+	{
+		serializer* temp = 0;
+		if (sendBuffer.pop(&temp) == false)
+		{
+			WSAbufferCount--;
+			sendBufferSize--;
+			continue;
+		}
+
+		buffer[WSAbufferCount].buf = temp->getHeadPtr();
+		buffer[WSAbufferCount].len = (ULONG)temp->size();
+
+		sendedBuffer.push((char*)&temp, sizeof(serializer*));
+	}
+
+	DWORD temp1 = 0;
+
+	memset(&sendOverlapped, 0, sizeof(OVERLAPPED));
+	auto ret = WSASend(socket, buffer, (DWORD)WSAbufferCount, &temp1, 0, (LPWSAOVERLAPPED)&sendOverlapped, NULL);
+
+	if (ret == SOCKET_ERROR) {
+		auto errorCode = GetLastError();
+		if (errorCode != WSA_IO_PENDING) // send는 지금 IO_PENDING을 타지 않는다.
+		{
+			if (errorCode != 10054 && errorCode != 10053)
 			{
 				LOG(logLevel::Error, LO_TXT, "WSASend Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
 				InterlockedExchange16(&sendFlag, 0);
@@ -169,12 +214,35 @@ bool session::sendIO()
 				//*temp = 10;
 			}
 
-			
-			return false;
+			cancelIORegist();
+
+			if (CancelIoEx((HANDLE)socket, &(recvOverlapped)) == 0)
+			{
+				int errorCode = GetLastError();
+				if (errorCode != ERROR_NOT_FOUND) {
+					LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "disconnectReq recv CancelIoEx error " << errorCode << " index " << (USHORT)this->ID << LOGEND;
+				}
+			}
+
+			if (decrementIO() == 0)
+				core->deleteSession(this); // [질문1] 이부분, 각 세션에서 네트워크 엔진의 정보를 알고있게 했는가?
+
+			return;
+		}
+
+		if (hasCancelIOFlag()) 
+		{
+			if (CancelIoEx((HANDLE)socket, &sendOverlapped) == 0)
+			{
+				int errorCode = GetLastError();
+				if (errorCode != ERROR_NOT_FOUND) {
+					LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "disconnectReq send CancelIoEx error " << errorCode << " index " << (USHORT)this->ID << LOGEND;
+				}
+			}
 		}
 	}
 
-	return true;
+	return;
 }
 
 /// <summary>
@@ -203,7 +271,8 @@ int session::sended(DWORD& transfer)
 		transfer -= (DWORD)packetBuffer->size();
 		sendedCount++;
 
-		if (packetBuffer->decReferenceCounter() == 0)
+		int temp = packetBuffer->decReferenceCounter();
+		if (temp == 0)
 			serializerFree(packetBuffer);
 	}
 
@@ -221,28 +290,22 @@ int session::sended(DWORD& transfer)
 /// true : 넣음
 /// false : 넣을수 없음
 /// </returns>
-bool session::collectSendPacket(packet& p)
+bool session::collectSendPacket(packet p)
 {
-	p.buffer->incReferenceCounter();
-	////1sendBuffer.push(p.buffer); // 이후 sendBuffer의 크기를 제한할 일이 생긴다면 (꽉차서 짤라내기 등) 이곳에서 조건탈것
-	return true;
 
-	//if (sendBuffer.freeSize() >= sizeof(serializer*))
-	//{
-	//	p.buffer->incReferenceCounter();
-	//	auto ret = sendBuffer.push((char*)&(p.buffer), sizeof(serializer*));
-	//
-	//	if (ret != sizeof(serializer*))
-	//	{
-	//		printf("brake here");
-	//	}
-	//	return true;
-	//}
-	//else {
-	//	return false;
-	//}
+	if (sendBuffer.push(p.buffer))
+		return true;
+	else
+		return false;
 }
 
+bool session::collectSendPacket(serializer* p)
+{
+	if (sendBuffer.push(p))
+		return true;
+	else
+		return false;
+}
 
 /// <summary>
 /// 
@@ -251,24 +314,40 @@ bool session::collectSendPacket(packet& p)
 /// true : 정상동작 상태
 /// false : 어떤 이유로든 정상 동작 불가능
 /// </returns>
+/// 
+/*/ [질문1] 연관
 bool session::recvIO()
 {
-	if (hasDisconnectRequest())
+	if (hasCancelIOFlag())
 		return true;
 
-	WSABUF buffer;
-	buffer.buf = recvBuffer.tail();
-	buffer.len = (ULONG)recvBuffer.DirectEnqueueSize();
+	WSABUF buffer[2];
+	int bufferCount = 1;
+	size_t freeSize = recvBuffer.freeSize();
+
+	buffer[0].buf = recvBuffer.tail();
+	buffer[0].len = (ULONG)recvBuffer.DirectEnqueueSize();
+	freeSize -= (ULONG)recvBuffer.DirectEnqueueSize();
+
+	if (freeSize > 0)
+	{
+		buffer[1].buf = recvBuffer.bufferPtr();
+		buffer[1].len = freeSize;
+		bufferCount = 2;
+	}
+
 
 	DWORD temp1 = 0;
 	DWORD temp2 = 0;
-	auto ret = WSARecv(socket, &buffer, 1, &temp1, &temp2, (LPWSAOVERLAPPED)&recvOverlapped, NULL);
+
+	memset(&recvOverlapped, 0, sizeof(OVERLAPPED));
+	auto ret = WSARecv(socket, buffer, bufferCount, &temp1, &temp2, (LPWSAOVERLAPPED)&recvOverlapped, NULL);
 
 	if (ret == SOCKET_ERROR) {
 		auto errorCode = GetLastError();
 		if (errorCode != WSA_IO_PENDING)
 		{
-			if (errorCode != 10054 && errorCode != 10053 && errorCode != 10038)
+			if (errorCode != 10054 && errorCode != 10053)
 			{
 				LOG(logLevel::Error, LO_TXT, "WSARecv Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
 				//int* temp = nullptr;
@@ -277,10 +356,82 @@ bool session::recvIO()
 			
 			return false;
 		}
-		//오규리 :: IO Cancel 여부를 확인해보자????
+	}
+	if (hasCancelIOFlag())
+	{
+		CancelIoEx((HANDLE)socket, &sendOverlapped);
+	}
+	return true;
+}
+/*/
+
+void session::recvIO()
+{
+	if (hasCancelIOFlag())
+		return;
+
+	WSABUF buffer[2];
+	int bufferCount = 1;
+	size_t freeSize = recvBuffer.freeSize();
+
+	buffer[0].buf = recvBuffer.tail();
+	buffer[0].len = (ULONG)recvBuffer.DirectEnqueueSize();
+	freeSize -= (ULONG)recvBuffer.DirectEnqueueSize();
+
+	if (freeSize > 0)
+	{
+		buffer[1].buf = recvBuffer.bufferPtr();
+		buffer[1].len = freeSize;
+		bufferCount = 2;
 	}
 
-	return true;
+	DWORD temp1 = 0;
+	DWORD temp2 = 0;
+
+	incrementIO();
+
+	memset(&recvOverlapped, 0, sizeof(OVERLAPPED));
+	auto ret = WSARecv(socket, buffer, bufferCount, &temp1, &temp2, (LPWSAOVERLAPPED)&recvOverlapped, NULL);
+
+	if (ret == SOCKET_ERROR) {
+		auto errorCode = GetLastError(); // recv는 지금 IO_PENDING을 탄다
+
+		if (errorCode != WSA_IO_PENDING)
+		{
+			if (errorCode != 10054 && errorCode != 10053)
+			{
+				LOG(logLevel::Error, LO_TXT, "WSARecv Error " + to_string(errorCode) + "\tby socket " + to_string(socket) + ", id " + to_string(ID));
+			}
+
+			cancelIORegist();
+
+			if (CancelIoEx((HANDLE)socket, &sendOverlapped) == 0)
+			{
+				int errorCode = GetLastError();
+				if (errorCode != ERROR_NOT_FOUND) {
+					LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "disconnectReq recv CancelIoEx error " << errorCode << " index " << (USHORT)this->ID << LOGEND;
+				}
+			}
+
+			if (decrementIO() == 0)
+				core->deleteSession(this);
+
+			return;
+		}
+
+		if (hasCancelIOFlag())
+		{
+			if (CancelIoEx((HANDLE)socket, &recvOverlapped) == 0)
+			{
+				int errorCode = GetLastError();
+				if (errorCode != ERROR_NOT_FOUND) {
+					LOGOUT_EX(logLevel::Error, LO_TXT, "lib") << "disconnectReq recv CancelIoEx error " << errorCode << " index " << (USHORT)this->ID << LOGEND;
+				}
+			}
+		}
+	}
+
+	return;
 }
 
 /// <summary>
@@ -308,17 +459,44 @@ bool session::recved(DWORD& transfer)
 /// true : 꺼낼게 있음
 /// false : 꺼낼게 없음 
 /// </returns>
-bool session::recvedPacket(packet& p)
+bool session::recvedPacket(serializer* p)
 {
 	if (recvBuffer.size() >= sizeof(packet::packetHeader))
 	{
-		packet::packetHeader* h = (packet::packetHeader*)recvBuffer.head();
-		//recvBuffer.front((char*)&h, sizeof(packet::packetHeader));
+		packet::packetHeader h;
+		int size = recvBuffer.front((char*)&h, sizeof(packet::packetHeader));
+		if (size != sizeof(packet::packetHeader))
+			return false;
 
-		if (recvBuffer.size() >= sizeof(packet::packetHeader) + h->size)
+		if (recvBuffer.size() >= sizeof(packet::packetHeader) + h.size)
 		{
-			recvBuffer.pop((char*)p.getPacketHeader(), sizeof(packet::packetHeader) + h->size);
-			p.buffer->moveRear(h->size);
+			recvBuffer.pop((char*)p->getBufferPtr(), sizeof(packet::packetHeader) + h.size);
+			p->moveRear(h.size);
+			p->moveFront(-(int)sizeof(packet::packetHeader));
+
+			return true;
+		}
+		else
+			return false;
+	}
+
+	return false;
+}
+
+/*/
+bool session::recvedPacket(serializer* p)
+{
+	if (recvBuffer.size() >= sizeof(packet::packetHeader))
+	{
+		packet::packetHeader h;
+		int size = recvBuffer.front((char*)&h, sizeof(packet::packetHeader));
+		if (size != sizeof(packet::packetHeader))
+			return false;
+
+		if (recvBuffer.size() >= sizeof(packet::packetHeader) + h.size)
+		{
+			recvBuffer.pop((char*)p.getPacketHeader(), sizeof(packet::packetHeader) + h.size);
+			p.buffer->moveRear(h.size);
 			p.buffer->moveFront(-(int)sizeof(packet::packetHeader));
 
 			return true;
@@ -329,18 +507,19 @@ bool session::recvedPacket(packet& p)
 
 	return false;
 }
+/*/
+
+
+
 /// <summary>
 /// 해당 세션이 모종의 이유로 서버측에서 먼저 끊기 요청된 경우, 해당 플래그 설정
 /// </summary>
 /// <returns>
 /// ioCount에 해당 플래그를 해제한 뒤의 값
 /// </returns>
-UINT32 session::disconnectRegist()
+UINT32 session::cancelIORegist()
 {
-	return InterlockedOr((LONG*) &IOcount, 0x80000000);
-	// releaseFlag  =  이녀석 지워지는중임
-	// disconnectFlag = IO 캔슬 요청된 플래그
-	// ioCount = 아이오 카운트
+	return cancelIOFlag = 1;
 }
 
 /// <summary>
@@ -349,9 +528,9 @@ UINT32 session::disconnectRegist()
 /// <returns>
 /// ioCount에 해당 플래그를 해제한 뒤의 값
 /// </returns>
-UINT32 session::disconnectUnregist()
+UINT32 session::cancelIOUnregist()
 {
-	return InterlockedAnd((LONG*)&IOcount, 0x7fffffff);
+	return cancelIOFlag = 0;
 }
 
 /// <summary>
@@ -361,9 +540,9 @@ UINT32 session::disconnectUnregist()
 /// true : 끊기 요청상태임
 /// false : 아님
 /// </returns>
-bool session::hasDisconnectRequest()
+bool session::hasCancelIOFlag()
 {
-	return (IOcount & 0x80000000) != 0;
+	return cancelIOFlag == 1;
 }
 
 SOCKET session::getSocket() {
@@ -384,17 +563,11 @@ void session::bufferClear()
 {
 	serializer* packetBuffer;
 
-	////1while (sendBuffer.pop(packetBuffer) != -1)
-	////1{
-	////1	if (packetBuffer->decReferenceCounter() == 0)
-	////1		serializerFree(packetBuffer);
-	////1}
-	//while (!sendBuffer.empty())
-	//{
-	//	sendBuffer.pop((char*)&packetBuffer, sizeof(serializer*));
-	//	if (packetBuffer->decReferenceCounter() == 0)
-	//		serializerFree(packetBuffer);
-	//}
+	while (sendBuffer.pop(&packetBuffer))
+	{
+		if (packetBuffer->decReferenceCounter() == 0)
+			serializerFree(packetBuffer);
+	}
 
 	while (!sendedBuffer.empty())
 	{

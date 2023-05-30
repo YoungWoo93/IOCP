@@ -2,11 +2,9 @@
 
 #ifdef _DEBUG
 #pragma comment(lib, "MemoryPoolD")
-#pragma comment(lib, "MessageLoggerD")
 
 #else
 #pragma comment(lib, "MemoryPool")
-#pragma comment(lib, "MessageLogger")
 
 #endif
 
@@ -14,7 +12,11 @@
 
 #include "Serializer/Serializer/BaseSerializer.h"
 #include "MemoryPool/MemoryPool/MemoryPool.h"
-#include "MessageLogger/MessageLogger/MessageLogger.h"
+#include "monitoringTools/monitoringTools/messageLogger.h"
+
+#include "monitoringTools/monitoringTools/performanceProfiler.h"
+#include "monitoringTools/monitoringTools/resourceMonitor.h"
+#pragma comment(lib, "monitoringTools\\x64\\Release\\monitoringTools")
 
 extern ObjectPool<serializer> serializerPool;
 extern SRWLOCK serializerPoolLock;
@@ -24,7 +26,7 @@ std::pair<size_t, size_t> packetPoolMemoryCheck();
 void serializerFree(serializer* s);
 serializer* serializerAlloc();
 void setHeader(packet& p);
-
+void setHeader(serializer* p);
 
 class packet {
 public:
@@ -42,11 +44,11 @@ public:
 	packet() {
 		buffer = serializerAlloc();
 		buffer->clean();
-
-		buffer->incReferenceCounter();
 		buffer->moveRear(sizeof(packetHeader));
 		buffer->moveFront(sizeof(packetHeader));
 	}
+
+
 
 	~packet() {
 		int temp = buffer->decReferenceCounter();
@@ -64,6 +66,11 @@ public:
 		buffer->incReferenceCounter();
 	}
 
+	packet(serializer* s) {
+		buffer = s;
+		buffer->incReferenceCounter();
+	}
+
 	int incReferenceCounter(int size = 1)
 	{
 		return buffer->incReferenceCounter(size);
@@ -74,9 +81,9 @@ public:
 		int ret = buffer->decReferenceCounter(size);
 		if (ret == 0)
 		{
-			AcquireSRWLockExclusive(&serializerPoolLock);
+			//AcquireSRWLockExclusive(&serializerPoolLock);
 			serializerPool.Free(this->buffer);
-			ReleaseSRWLockExclusive(&serializerPoolLock);
+			//ReleaseSRWLockExclusive(&serializerPoolLock);
 			buffer = nullptr;
 		}
 
@@ -206,43 +213,33 @@ public:
 		return *this;
 	}
 
-	packet& operator = (packet& p) {
-		int temp = this->buffer->decReferenceCounter();
+	packet& operator = (const packet& p) {
+		p.buffer->incReferenceCounter();
 
+		int temp = this->buffer->decReferenceCounter();
 		if (temp == 0)
 		{
-			if (temp < 0)
-			{
-				cout << "error" << endl;
-			}
-
-			AcquireSRWLockExclusive(&serializerPoolLock);
+			//AcquireSRWLockExclusive(&serializerPoolLock);
 			serializerPool.Free(this->buffer);
-			ReleaseSRWLockExclusive(&serializerPoolLock);
+			//ReleaseSRWLockExclusive(&serializerPoolLock);
 		}
 
-		p.buffer->incReferenceCounter();
 		this->buffer = p.buffer;
 
 		return *this;
 	}
 
 	packet& operator = (serializer* s) {
-		int temp = this->buffer->decReferenceCounter();
+		s->incReferenceCounter();
 
+		int temp = this->buffer->decReferenceCounter();
 		if (temp == 0)
 		{
-			if (temp < 0)
-			{
-				cout << "error" << endl;
-			}
-
-			AcquireSRWLockExclusive(&serializerPoolLock);
+			//AcquireSRWLockExclusive(&serializerPoolLock);
 			serializerPool.Free(this->buffer);
-			ReleaseSRWLockExclusive(&serializerPoolLock);
+			//ReleaseSRWLockExclusive(&serializerPoolLock);
 		}
 
-		s->incReferenceCounter();
 		this->buffer = s;
 
 		return *this;

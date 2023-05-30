@@ -8,26 +8,27 @@ class packetSerializer;
 
 
 
-#include <queue>
 
 class serializer
 {
 public:
-	std::queue<int> logQ;
-	void memo(int v)
-	{
-		logQ.push(v);
-	}
+#pragma pack(push, 1)
+	struct packetHeader {
+		char code;
+		short size;
+		char randKey;
+		char checkSum;
+	};
+#pragma pack(pop)
 
-
-	serializer() : bufferPtr((char*)_aligned_malloc(64, 64)), bufferSize(64), headPtr(bufferPtr), tailPtr(bufferPtr), useHeap(false), heap(0), referenceCounter(0) {	// c++ allocator 를 이용해 64바이트 (캐시라인) 경계에 서도록 짜보자
+	serializer() : bufferPtr((char*)_aligned_malloc(1024, 64)), bufferSize(1024), headPtr(bufferPtr), tailPtr(bufferPtr), useHeap(false), heap(0), referenceCounter(0) {	// c++ allocator 를 이용해 64바이트 (캐시라인) 경계에 서도록 짜보자
 
 	}																					//    aligned alloc 구현 이후
 	serializer(const size_t _size)
 		:bufferPtr((char*)_aligned_malloc(_size, 64)), bufferSize(_size), headPtr(bufferPtr), tailPtr(bufferPtr), useHeap(false), heap(0), referenceCounter(0) {
 	}
 	serializer(HANDLE heap)
-		:bufferPtr((char*)HeapAlloc(heap, NULL, 64)), bufferSize(64), headPtr(bufferPtr), tailPtr(bufferPtr), useHeap(true), heap(heap), referenceCounter(0) {
+		:bufferPtr((char*)HeapAlloc(heap, NULL, 1024)), bufferSize(1024), headPtr(bufferPtr), tailPtr(bufferPtr), useHeap(true), heap(heap), referenceCounter(0) {
 	}
 	serializer(HANDLE heap, const size_t _size)
 		:bufferPtr((char*)HeapAlloc(heap, NULL, _size)), bufferSize(_size), headPtr(bufferPtr), tailPtr(bufferPtr), useHeap(true), heap(heap), referenceCounter(0) {
